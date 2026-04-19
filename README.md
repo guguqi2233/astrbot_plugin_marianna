@@ -1,7 +1,7 @@
 # 玛丽亚·特蕾莎 · 哈布斯堡人格插件
 
-[![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-blue)](https://github.com/Soulter/AstrBot)
-[![Version](https://img.shields.io/badge/version-2.0.0-green)]()
+[![AstrBot](https://img.shields.io/badge/AstrBot-4.23+-blue)](https://github.com/Soulter/AstrBot)
+[![Version](https://img.shields.io/badge/version-0.1.0-green)]()
 
 > 一个具有复杂情感模拟与长期记忆能力的贵族少女角色插件，为你的AstrBot注入傲娇与病娇交织的灵魂。
 
