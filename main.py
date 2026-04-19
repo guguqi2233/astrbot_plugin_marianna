@@ -648,7 +648,7 @@ async def _on_message(self, event: AstrMessageEvent):
         if isinstance(comp, Plain):
             plain_text += comp.text
     if not plain_text:
-        return  # 不带值，结束生成器
+        return  
 
     # 如果是指令，让框架处理（指令已注册，这里直接返回避免重复处理）
     if plain_text.startswith("/"):
