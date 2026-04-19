@@ -1,11 +1,1 @@
-astrbot_plugin_marianna/
-├── __init__.py
-├── main.py                    # 插件主逻辑
-├── metadata.yaml              # 插件元数据
-├── _conf_schema.json          # WebUI 配置面板
-├── requirements.txt           # 依赖（无需额外，仅内置）
-├── README.md                  # 使用说明
-└── data/                      # 运行时自动生成
-    ├── user_states.json       # 用户数值状态
-    ├── user_profiles.json     # 用户画像
-    └── conversation_history/  # 按用户存储的对话历史（可选）
+
