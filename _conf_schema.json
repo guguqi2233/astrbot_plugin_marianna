@@ -1,53 +1,83 @@
 {
-  "type": "object",
-  "properties": {
-    "marianna_initial_favor": {
-      "type": "number", "minimum": 0, "maximum": 100, "default": 20,
-      "title": "初始好感度", "description": "新用户首次对话时的初始好感度"
-    },
-    "marianna_initial_yan": {
-      "type": "number", "minimum": 0, "maximum": 100, "default": 15,
-      "title": "初始病娇值"
-    },
-    "marianna_initial_elegance": {
-      "type": "number", "minimum": 0, "maximum": 100, "default": 75,
-      "title": "初始优雅值"
-    },
-    "marianna_favor_multiplier": {
-      "type": "number", "minimum": 0.5, "maximum": 2.0, "default": 1.0,
-      "title": "好感度变化倍率"
-    },
-    "marianna_yan_multiplier": {
-      "type": "number", "minimum": 0.5, "maximum": 2.0, "default": 1.0,
-      "title": "病娇值变化倍率"
-    },
-    "marianna_lock_threshold": {
-      "type": "number", "minimum": 50, "maximum": 150, "default": 100,
-      "title": "锁定进度阈值"
-    },
-    "auto_summary_interval": {
-      "type": "integer", "minimum": 5, "maximum": 100, "default": 20,
-      "title": "自动总结间隔（轮）", "description": "每进行多少轮对话后自动触发总结"
-    },
-    "auto_summary_idle_time": {
-      "type": "integer", "minimum": 60, "maximum": 3600, "default": 300,
-      "title": "自动总结空闲时间（秒）"
-    },
-    "enable_user_profile": {
-      "type": "boolean", "default": true,
-      "title": "启用用户画像学习"
-    },
-    "enable_emotional_memory": {
-      "type": "boolean", "default": true,
-      "title": "启用情感记忆（需 Mnemosyne）"
-    },
-    "marianna_temperature": {
-      "type": "number", "minimum": 0.5, "maximum": 1.2, "default": 0.85,
-      "title": "回复温度"
-    },
-    "marianna_debug_mode": {
-      "type": "boolean", "default": false,
-      "title": "调试模式", "description": "开启后回复末尾显示数值变化"
-    }
+  "marianna_initial_favor": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 100,
+    "default": 20,
+    "title": "初始好感度",
+    "description": "新用户首次对话时的初始好感度"
+  },
+  "marianna_initial_yan": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 100,
+    "default": 15,
+    "title": "初始病娇值"
+  },
+  "marianna_initial_elegance": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 100,
+    "default": 75,
+    "title": "初始优雅值"
+  },
+  "marianna_favor_multiplier": {
+    "type": "float",
+    "minimum": 0.5,
+    "maximum": 2.0,
+    "default": 1.0,
+    "title": "好感度变化倍率"
+  },
+  "marianna_yan_multiplier": {
+    "type": "float",
+    "minimum": 0.5,
+    "maximum": 2.0,
+    "default": 1.0,
+    "title": "病娇值变化倍率"
+  },
+  "marianna_lock_threshold": {
+    "type": "int",
+    "minimum": 50,
+    "maximum": 150,
+    "default": 100,
+    "title": "锁定进度阈值"
+  },
+  "auto_summary_interval": {
+    "type": "int",
+    "minimum": 5,
+    "maximum": 100,
+    "default": 20,
+    "title": "自动总结间隔(轮)",
+    "description": "每进行多少轮对话后自动触发总结"
+  },
+  "auto_summary_idle_time": {
+    "type": "int",
+    "minimum": 60,
+    "maximum": 3600,
+    "default": 300,
+    "title": "自动总结空闲时间(秒)"
+  },
+  "enable_user_profile": {
+    "type": "bool",
+    "default": true,
+    "title": "启用用户画像学习"
+  },
+  "enable_emotional_memory": {
+    "type": "bool",
+    "default": true,
+    "title": "启用情感记忆(需 Mnemosyne)"
+  },
+  "marianna_temperature": {
+    "type": "float",
+    "minimum": 0.5,
+    "maximum": 1.2,
+    "default": 0.85,
+    "title": "回复温度"
+  },
+  "marianna_debug_mode": {
+    "type": "bool",
+    "default": false,
+    "title": "调试模式",
+    "description": "开启后回复末尾显示数值变化"
   }
 }
