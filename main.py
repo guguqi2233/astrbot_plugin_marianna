@@ -640,88 +640,83 @@ class MariannaPersonality(Star):
     
     # ======================== 主消息处理 ========================
     
-    async def _on_message(self, event: AstrMessageEvent):
-        # 提取纯文本
-        plain_text = ""
-        for comp in event.get_messages():
-            if isinstance(comp, Plain):
-                plain_text += comp.text
-        if not plain_text:
-            return
-        
-        # 如果是指令，让框架处理（指令已注册，这里直接返回 避免重复处理）
-        if plain_text.startswith("/"):
-            return 
-        
-        user_id = event.get_sender_id()
-        state = self._get_state(user_id)
-        
-        # 更新数值
-        fav_change = self._update_favor(state, plain_text)
-        lock_change = self._update_lock_progress(state, plain_text)
-        yan_change = self._update_yan(state, fav_change, lock_change, plain_text)
-        anx_change = self._update_anxiety(state, plain_text)
-        ele_change = self._update_elegance(state, anx_change, plain_text)
-        self._update_possessiveness(state)
-        
-        new_state_name = self._determine_state(state)
-        if new_state_name != state["当前状态"]:
-            state["当前状态"] = new_state_name
-            # 检查是否触发锁定事件
-            if state["锁定进度"] >= self.lock_threshold and not state.get("已触发锁定事件", False):
-                state["已触发锁定事件"] = True
-                event_trigger = "locked"
-            else:
-                event_trigger = None
-        else:
-            event_trigger = None
-        
-        self._save_state(user_id, state)
-        
-        # 存储用户消息到历史
-        self._add_to_history(user_id, "user", plain_text)
-        
-        # 更新用户画像（异步，不等待）
-        if self.enable_profile:
-            asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, ""))
-        
-        # 构建系统提示词
-        system_prompt = await self._build_system_prompt(user_id, state, plain_text)
-        user_prompt = plain_text
-        
-        # 调用 LLM
-        llm = self.context.get_llm_client()
-        try:
-            resp = await llm.chat(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=self.temperature,
-                max_tokens=500
-            )
-            reply = resp.choices[0].message.content
-            
-            # 特殊事件包装
-            if event_trigger == "locked":
-                reply = "*（她忽然安静下来，琥珀色的眼眸直直望着你，过了很久，她轻声说——）*\n\n" + reply + "\n\n> *从这一刻起，你已经是她的“命定之人”了。*"
-            
-            # 存储回复到历史
-            self._add_to_history(user_id, "assistant", reply)
-            
-            # 再次更新画像（使用完整对话）
-            if self.enable_profile:
-                asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, reply))
-            
-            if self.debug_mode:
-                reply += f"\n\n---\n*[好感:{state['好感度']} 病娇:{state['病娇值']} 锁定:{state['锁定进度']}%]*"
-            
-            yield event.plain_result(reply)
-        except Exception as e:
-            logger.error(f"LLM 调用失败: {e}")
-            yield event.plain_result("*（玛丽亚沉默了片刻，似乎陷入了某种思绪...）*")
-        
+async def _on_message(self, event: AstrMessageEvent):
+    """处理用户消息（异步生成器）"""
+    # 提取纯文本
+    plain_text = ""
+    for comp in event.get_messages():
+        if isinstance(comp, Plain):
+            plain_text += comp.text
+    if not plain_text:
+        return  # 不带值，结束生成器
+
+    # 如果是指令，让框架处理（指令已注册，这里直接返回避免重复处理）
+    if plain_text.startswith("/"):
         return
+
+    user_id = event.get_sender_id()
+    state = self._get_state(user_id)
+
+    # 更新数值
+    fav_change = self._update_favor(state, plain_text)
+    lock_change = self._update_lock_progress(state, plain_text)
+    yan_change = self._update_yan(state, fav_change, lock_change, plain_text)
+    anx_change = self._update_anxiety(state, plain_text)
+    ele_change = self._update_elegance(state, anx_change, plain_text)
+    self._update_possessiveness(state)
+
+    new_state_name = self._determine_state(state)
+    event_trigger = None
+    if new_state_name != state["当前状态"]:
+        state["当前状态"] = new_state_name
+        if state["锁定进度"] >= self.lock_threshold and not state.get("已触发锁定事件", False):
+            state["已触发锁定事件"] = True
+            event_trigger = "locked"
+
+    self._save_state(user_id, state)
+
+    # 存储用户消息到历史
+    self._add_to_history(user_id, "user", plain_text)
+
+    # 更新用户画像（异步，不等待）
+    if self.enable_profile:
+        asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, ""))
+
+    # 构建系统提示词
+    system_prompt = await self._build_system_prompt(user_id, state, plain_text)
+    user_prompt = plain_text
+
+    # 调用 LLM
+    llm = self.context.get_llm_client()
+    try:
+        resp = await llm.chat(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=self.temperature,
+            max_tokens=500
+        )
+        reply = resp.choices[0].message.content
+
+        if event_trigger == "locked":
+            reply = "*（她忽然安静下来，琥珀色的眼眸直直望着你，过了很久，她轻声说——）*\n\n" + reply + "\n\n> *从这一刻起，你已经是她的“命定之人”了。*"
+
+        self._add_to_history(user_id, "assistant", reply)
+
+        if self.enable_profile:
+            asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, reply))
+
+        if self.debug_mode:
+            reply += f"\n\n---\n*[好感:{state['好感度']} 病娇:{state['病娇值']} 锁定:{state['锁定进度']}%]*"
+
+        yield event.plain_result(reply)
+    except Exception as e:
+        logger.error(f"LLM 调用失败: {e}")
+        yield event.plain_result("*（玛丽亚沉默了片刻，似乎陷入了某种思绪...）*")
+
+    # 函数结束，隐式返回 None（不带值，允许）
+    return
     
     async def terminate(self):
         """插件卸载时保存所有数据"""
