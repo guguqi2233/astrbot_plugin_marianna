@@ -10,13 +10,8 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import Plain
 
-# 尝试导入 Mnemosyne 长期记忆插件（可选）
-try:
-    from astrbot_plugin_mnemosyne import MnemosyneManager
-    MNEMOSYNE_AVAILABLE = True
-except ImportError:
-    MNEMOSYNE_AVAILABLE = False
-    logger.warning("Mnemosyne 未安装，长期记忆功能将不可用。如需使用，请在插件市场安装。")
+# Mnemosyne 长期记忆插件将通过动态方式调用
+MNEMOSYNE_AVAILABLE = False
 
 # ======================== 常量定义 ========================
 
@@ -80,22 +75,13 @@ class MariannaPersonality(Star):
         self.config = self._load_config()
         self._apply_config()
         
-        # 初始化 Mnemosyne（如果可用且配置启用）
-        self.memory_manager = None
-        if MNEMOSYNE_AVAILABLE and self.config.get("enable_emotional_memory", True):
-            try:
-                self.memory_manager = MnemosyneManager(context)
-                logger.info("✅ Mnemosyne 长期记忆已启用")
-            except Exception as e:
-                logger.error(f"Mnemosyne 初始化失败: {e}")
+        # Mnemosyne 插件引用（将在启动后动态检测）
+        self.mnemosyne_plugin = None
+        self._mnemosyne_checked = False
         
-        # 启动后台自动总结任务
+        # 启动后台任务
         asyncio.create_task(self._auto_summary_loop())
-        
-        # 注册消息处理器（拦截所有普通消息）
-        @self.handler.on_message
-        async def handle_message(event: AstrMessageEvent):
-            return await self._on_message(event)
+        asyncio.create_task(self._check_mnemosyne_availability())
     
     # ======================== 辅助函数 ========================
     
@@ -117,11 +103,10 @@ class MariannaPersonality(Star):
     
     def _load_config(self) -> Dict[str, Any]:
         try:
-            from astrbot.core.config.config import Config
-            config = Config.get_instance()
-            plugin_cfg = config.get("plugins", {}).get("astrbot_plugin_marianna", {})
-            return plugin_cfg
-        except Exception:
+            # 从 context 获取配置
+            return self.context.get_plugin_config()
+        except Exception as e:
+            logger.error(f"加载插件配置失败: {e}")
             return {}
     
     def _apply_config(self):
@@ -367,24 +352,23 @@ class MariannaPersonality(Star):
         if len(history) < 5:
             return
         summary = await self._generate_summary(history)
-        # 存储到记忆
-        if self.memory_manager:
-            await self.memory_manager.add_memory(
-                user_id,
-                f"自动总结：{summary}",
-                metadata={"type": "auto_summary", "timestamp": datetime.now().isoformat()}
-            )
-        else:
-            profile = self._get_profile(user_id)
-            profile["玛丽亚学习笔记"]["自动总结"].append({
-                "time": datetime.now().isoformat(),
-                "summary": summary
-            })
-            # 只保留最近5条
-            if len(profile["玛丽亚学习笔记"]["自动总结"]) > 5:
-                profile["玛丽亚学习笔记"]["自动总结"] = profile["玛丽亚学习笔记"]["自动总结"][-5:]
-            self._save_profile(user_id, profile)
-        logger.info(f"已为用户 {user_id} 生成自动总结")
+        
+        # 存储到 Mnemosyne（如果可用）
+        if MNEMOSYNE_AVAILABLE:
+            await self._store_to_mnemosyne(user_id, f"自动总结：{summary}", "auto_summary")
+        
+        # 同时存储到本地画像
+        profile = self._get_profile(user_id)
+        profile["玛丽亚学习笔记"]["自动总结"].append({
+            "time": datetime.now().isoformat(),
+            "summary": summary
+        })
+        # 只保留最近5条
+        if len(profile["玛丽亚学习笔记"]["自动总结"]) > 5:
+            profile["玛丽亚学习笔记"]["自动总结"] = profile["玛丽亚学习笔记"]["自动总结"][-5:]
+        self._save_profile(user_id, profile)
+        
+        logger.info(f"已为用户 {user_id} 生成自动总结" + (" (已同步到 Mnemosyne)" if MNEMOSYNE_AVAILABLE else ""))
     
     async def _auto_summary_loop(self):
         while True:
@@ -482,11 +466,11 @@ class MariannaPersonality(Star):
             if prof["玛丽亚学习笔记"]["喜欢的话题"]:
                 profile_text += f"用户喜欢聊：{', '.join(prof['玛丽亚学习笔记']['喜欢的话题'][:3])}\n"
         
-        # 相关记忆检索
+        # 相关记忆检索（从 Mnemosyne）
         memory_text = ""
-        if self.memory_manager:
+        if MNEMOSYNE_AVAILABLE:
             try:
-                memories = await self.memory_manager.search_memories(user_id, user_msg, limit=3)
+                memories = await self._retrieve_from_mnemosyne(user_id, user_msg, limit=3)
                 if memories:
                     memory_text = "相关记忆：\n" + "\n".join([m.get("content", "")[:100] for m in memories]) + "\n"
             except Exception as e:
@@ -583,21 +567,21 @@ class MariannaPersonality(Star):
             return
         yield event.plain_result("📝 正在总结最近的对话，请稍候...")
         summary = await self._generate_summary(history)
-        # 存储到记忆
-        if self.memory_manager:
-            await self.memory_manager.add_memory(
-                user_id,
-                f"手动总结：{summary}",
-                metadata={"type": "manual_summary", "timestamp": datetime.now().isoformat()}
-            )
-        else:
-            profile = self._get_profile(user_id)
-            profile["玛丽亚学习笔记"]["自动总结"].append({
-                "time": datetime.now().isoformat(),
-                "summary": summary
-            })
-            self._save_profile(user_id, profile)
-        yield event.plain_result(f"📝 **玛丽亚的对话笔记**\n\n{summary}\n\n> *她将这份总结默默收入了记忆中。*")
+        
+        # 存储到 Mnemosyne（如果可用）
+        if MNEMOSYNE_AVAILABLE:
+            await self._store_to_mnemosyne(user_id, f"手动总结：{summary}", "manual_summary")
+        
+        # 同时存储到本地画像
+        profile = self._get_profile(user_id)
+        profile["玛丽亚学习笔记"]["自动总结"].append({
+            "time": datetime.now().isoformat(),
+            "summary": summary
+        })
+        self._save_profile(user_id, profile)
+        
+        memory_note = " (已同步到长期记忆)" if MNEMOSYNE_AVAILABLE else ""
+        yield event.plain_result(f"📝 **玛丽亚的对话笔记**\n\n{summary}\n\n> *她将这份总结默默收入了记忆中{memory_note}。*")
     
     @filter.command("玛丽亚画像")
     async def cmd_profile(self, event: AstrMessageEvent):
@@ -640,83 +624,208 @@ class MariannaPersonality(Star):
     
     # ======================== 主消息处理 ========================
     
-async def _on_message(self, event: AstrMessageEvent):
-    """处理用户消息（异步生成器）"""
-    # 提取纯文本
-    plain_text = ""
-    for comp in event.get_messages():
-        if isinstance(comp, Plain):
-            plain_text += comp.text
-    if not plain_text:
-        return  
+    async def on_message(self, event: AstrMessageEvent):
+        """处理用户消息（异步生成器）"""
+        # 提取纯文本
+        plain_text = ""
+        for comp in event.get_messages():
+            if isinstance(comp, Plain):
+                plain_text += comp.text
+        if not plain_text:
+            return
 
-    # 如果是指令，让框架处理（指令已注册，这里直接返回避免重复处理）
-    if plain_text.startswith("/"):
-        return
+        # 如果是指令，让框架处理（指令已注册，这里直接返回避免重复处理）
+        if plain_text.startswith("/"):
+            return
 
-    user_id = event.get_sender_id()
-    state = self._get_state(user_id)
+        user_id = event.get_sender_id()
+        state = self._get_state(user_id)
 
-    # 更新数值
-    fav_change = self._update_favor(state, plain_text)
-    lock_change = self._update_lock_progress(state, plain_text)
-    yan_change = self._update_yan(state, fav_change, lock_change, plain_text)
-    anx_change = self._update_anxiety(state, plain_text)
-    ele_change = self._update_elegance(state, anx_change, plain_text)
-    self._update_possessiveness(state)
+        # 更新数值
+        fav_change = self._update_favor(state, plain_text)
+        lock_change = self._update_lock_progress(state, plain_text)
+        yan_change = self._update_yan(state, fav_change, lock_change, plain_text)
+        anx_change = self._update_anxiety(state, plain_text)
+        ele_change = self._update_elegance(state, anx_change, plain_text)
+        self._update_possessiveness(state)
 
-    new_state_name = self._determine_state(state)
-    event_trigger = None
-    if new_state_name != state["当前状态"]:
-        state["当前状态"] = new_state_name
-        if state["锁定进度"] >= self.lock_threshold and not state.get("已触发锁定事件", False):
-            state["已触发锁定事件"] = True
-            event_trigger = "locked"
+        new_state_name = self._determine_state(state)
+        event_trigger = None
+        if new_state_name != state["当前状态"]:
+            state["当前状态"] = new_state_name
+            if state["锁定进度"] >= self.lock_threshold and not state.get("已触发锁定事件", False):
+                state["已触发锁定事件"] = True
+                event_trigger = "locked"
 
-    self._save_state(user_id, state)
+        self._save_state(user_id, state)
 
-    # 存储用户消息到历史
-    self._add_to_history(user_id, "user", plain_text)
+        # 存储用户消息到历史
+        self._add_to_history(user_id, "user", plain_text)
 
-    # 更新用户画像（异步，不等待）
-    if self.enable_profile:
-        asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, ""))
-
-    # 构建系统提示词
-    system_prompt = await self._build_system_prompt(user_id, state, plain_text)
-    user_prompt = plain_text
-
-    # 调用 LLM
-    llm = self.context.get_llm_client()
-    try:
-        resp = await llm.chat(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=self.temperature,
-            max_tokens=500
-        )
-        reply = resp.choices[0].message.content
-
-        if event_trigger == "locked":
-            reply = "*（她忽然安静下来，琥珀色的眼眸直直望着你，过了很久，她轻声说——）*\n\n" + reply + "\n\n> *从这一刻起，你已经是她的“命定之人”了。*"
-
-        self._add_to_history(user_id, "assistant", reply)
-
+        # 更新用户画像（异步，不等待）
         if self.enable_profile:
-            asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, reply))
+            asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, ""))
 
-        if self.debug_mode:
-            reply += f"\n\n---\n*[好感:{state['好感度']} 病娇:{state['病娇值']} 锁定:{state['锁定进度']}%]*"
+        # 构建系统提示词
+        system_prompt = await self._build_system_prompt(user_id, state, plain_text)
+        user_prompt = plain_text
 
-        yield event.plain_result(reply)
-    except Exception as e:
-        logger.error(f"LLM 调用失败: {e}")
-        yield event.plain_result("*（玛丽亚沉默了片刻，似乎陷入了某种思绪...）*")
+        # 调用 LLM
+        llm = self.context.get_llm_client()
+        try:
+            resp = await llm.chat(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=self.temperature,
+                max_tokens=500
+            )
+            reply = resp.choices[0].message.content
 
-    # 函数结束，隐式返回 None（不带值，允许）
-    return
+            if event_trigger == "locked":
+                reply = "*（她忽然安静下来，琥珀色的眼眸直直望着你，过了很久，她轻声说——）*\n\n" + reply + "\n\n> *从这一刻起，你已经是她的“命定之人”了。*"
+
+            self._add_to_history(user_id, "assistant", reply)
+
+            if self.enable_profile:
+                asyncio.create_task(self._update_user_profile_from_message(user_id, plain_text, reply))
+
+            if self.debug_mode:
+                reply += f"\n\n---\n*[好感:{state['好感度']} 病娇:{state['病娇值']} 锁定:{state['锁定进度']}%]*"
+
+            yield event.plain_result(reply)
+        except Exception as e:
+            logger.error(f"LLM 调用失败: {e}")
+            yield event.plain_result("*（玛丽亚沉默了片刻，似乎陷入了某种思绪...）*")
+
+        # 函数结束，隐式返回（不带值）
+        return
+    
+    # ======================== Mnemosyne 集成 ========================
+    
+    async def _check_mnemosyne_availability(self):
+        """检查 Mnemosyne 插件是否可用"""
+        global MNEMOSYNE_AVAILABLE
+        try:
+            # 等待一段时间确保其他插件已加载
+            await asyncio.sleep(3)
+            
+            # 检查 Mnemosyne 插件目录是否存在
+            mnemosyne_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "astrbot_plugin_mnemosyne")
+            
+            if os.path.exists(mnemosyne_dir) and os.path.isdir(mnemosyne_dir):
+                MNEMOSYNE_AVAILABLE = True
+                logger.info("✅ 检测到 Mnemosyne 插件，长期记忆功能可用")
+                logger.info("💡 玛丽亚将使用 Mnemosyne 的长期记忆系统来记住与你的互动")
+            else:
+                logger.info("ℹ️ 未检测到 Mnemosyne 插件，将使用本地记忆存储")
+                MNEMOSYNE_AVAILABLE = False
+                
+        except Exception as e:
+            logger.warning(f"检查 Mnemosyne 可用性时出错: {e}")
+            MNEMOSYNE_AVAILABLE = False
+        
+        self._mnemosyne_checked = True
+    
+    async def _store_to_mnemosyne(self, user_id: str, content: str, memory_type: str = "interaction"):
+        """
+        将记忆存储到 Mnemosyne 插件（通过 /memory remember 命令）
+        
+        Args:
+            user_id: 用户ID
+            content: 记忆内容
+            memory_type: 记忆类型（interaction/summary/emotion等）
+        """
+        if not MNEMOSYNE_AVAILABLE:
+            return False
+        
+        try:
+            # 构造记忆内容，添加来源标记
+            memory_content = f"[玛丽亚·{memory_type}] {content}"
+            
+            # 通过文件系统共享记忆（备用方案）
+            # 创建共享目录
+            shared_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "shared_memory")
+            os.makedirs(shared_dir, exist_ok=True)
+            
+            # 为每个用户创建独立的记忆文件
+            memory_file = os.path.join(shared_dir, f"marianna_{user_id}.jsonl")
+            
+            # 追加记忆到文件（使用 JSONL 格式）
+            memory_entry = {
+                "user_id": user_id,
+                "content": memory_content,
+                "type": memory_type,
+                "timestamp": datetime.now().isoformat(),
+                "source": "marianna"
+            }
+            
+            with open(memory_file, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(memory_entry, ensure_ascii=False) + '\n')
+            
+            logger.debug(f"记忆已存储到共享文件: {memory_file}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"存储记忆到 Mnemosyne 失败: {e}")
+            return False
+    
+    async def _retrieve_from_mnemosyne(self, user_id: str, query: str = "", limit: int = 3) -> List[Dict]:
+        """
+        从 Mnemosyne 检索相关记忆
+        
+        Args:
+            user_id: 用户ID
+            query: 查询关键词（可选）
+            limit: 返回记忆数量限制
+            
+        Returns:
+            记忆列表
+        """
+        if not MNEMOSYNE_AVAILABLE:
+            return []
+        
+        try:
+            shared_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "shared_memory")
+            memory_file = os.path.join(shared_dir, f"marianna_{user_id}.jsonl")
+            
+            if not os.path.exists(memory_file):
+                return []
+            
+            # 读取所有记忆
+            memories = []
+            with open(memory_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            memory = json.loads(line)
+                            memories.append(memory)
+                        except json.JSONDecodeError:
+                            continue
+            
+            # 如果有查询词，进行简单的关键词匹配
+            if query and memories:
+                query_lower = query.lower()
+                scored_memories = []
+                for mem in memories:
+                    content = mem.get('content', '').lower()
+                    # 简单的关键词匹配评分
+                    score = sum(1 for word in query_lower.split() if word in content)
+                    if score > 0:
+                        scored_memories.append((score, mem))
+                
+                # 按分数排序并返回前 limit 条
+                scored_memories.sort(key=lambda x: x[0], reverse=True)
+                return [mem for _, mem in scored_memories[:limit]]
+            
+            # 如果没有查询词，返回最近的记忆
+            return memories[-limit:] if len(memories) > limit else memories
+            
+        except Exception as e:
+            logger.error(f"从 Mnemosyne 检索记忆失败: {e}")
+            return []
     
     async def terminate(self):
         """插件卸载时保存所有数据"""
