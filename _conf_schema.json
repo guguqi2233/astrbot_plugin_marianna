@@ -3,7 +3,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 100,
-    "default": 20,
+    "default": 0,
     "title": "初始好感度",
     "description": "新用户首次对话时的初始好感度"
   },
@@ -11,36 +11,57 @@
     "type": "int",
     "minimum": 0,
     "maximum": 100,
+    "default": 0,
+    "title": "初始病娇值",
+    "description": "新用户首次对话时的初始病娇值"
+  },
+  "marianna_initial_trust": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 100,
     "default": 15,
-    "title": "初始病娇值"
+    "title": "初始信任度",
+    "description": "新用户首次对话时的初始信任度"
+  },
+  "marianna_initial_anxiety": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 100,
+    "default": 5,
+    "title": "初始焦虑值",
+    "description": "新用户首次对话时的初始焦虑值"
   },
   "marianna_initial_elegance": {
     "type": "int",
     "minimum": 0,
     "maximum": 100,
-    "default": 75,
-    "title": "初始优雅值"
+    "default": 85,
+    "title": "初始优雅值",
+    "description": "新用户首次对话时的初始优雅值"
   },
   "marianna_favor_multiplier": {
     "type": "float",
     "minimum": 0.5,
     "maximum": 2.0,
     "default": 1.0,
-    "title": "好感度变化倍率"
+    "title": "好感度变化倍率",
+    "description": "修改好感度变化倍率，>1加速好感度变化，<1减缓好感度变化"
   },
   "marianna_yan_multiplier": {
     "type": "float",
     "minimum": 0.5,
     "maximum": 2.0,
     "default": 1.0,
-    "title": "病娇值变化倍率"
+    "title": "病娇值变化倍率",
+    "description": "修改病娇值变化倍率，>1加速病娇值变化，<1减缓病娇值变化"
   },
   "marianna_lock_threshold": {
     "type": "int",
     "minimum": 50,
-    "maximum": 150,
+    "maximum": 100,
     "default": 100,
-    "title": "锁定进度阈值"
+    "title": "锁定进度阈值",
+    "description": "当锁定进度达到该阈值时进入锁定状态"
   },
   "auto_summary_interval": {
     "type": "int",
@@ -55,29 +76,244 @@
     "minimum": 60,
     "maximum": 3600,
     "default": 300,
-    "title": "自动总结空闲时间(秒)"
+    "title": "自动总结空闲时间(秒)",
+    "description": "在用户最后一次消息后经过多少秒无新消息则自动触发总结"
   },
   "enable_user_profile": {
     "type": "bool",
     "default": true,
-    "title": "启用用户画像学习"
+    "title": "启用用户画像学习",
+    "description": "开启后玛丽亚会根据对话内容学习用户的兴趣爱好等信息，并在后续对话中进行个性化回复"
   },
   "enable_emotional_memory": {
     "type": "bool",
     "default": true,
-    "title": "启用情感记忆(需 Mnemosyne)"
+    "title": "启用情感记忆(需 Mnemosyne)",
+    "description": "开启后玛丽亚会根据对话内容学习用户的情感状态，并在后续对话中进行个性化回复"
+  },
+  "enable_selective_interaction_memory": {
+    "type": "bool",
+    "default": true,
+    "title": "选择性记录互动印象",
+    "description": "开启后只将有情绪分量、承诺、偏好、边界或秘密的互动写入 Mnemosyne，避免普通寒暄污染长期记忆"
+  },
+  "memory_prompt_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 20,
+    "default": 5,
+    "title": "回复注入记忆条数",
+    "description": "主回复系统提示中最多注入的 Mnemosyne 相关记忆条数；0 表示不向主回复注入长期记忆"
+  },
+  "memory_prompt_event_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 2,
+    "title": "事件节点记忆条数",
+    "description": "回复和分析检索时优先保留的事件节点记忆条数，例如承诺、秘密、阶段转折、边界或强情绪事件"
+  },
+  "memory_prompt_impression_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 2,
+    "title": "情绪印象记忆条数",
+    "description": "回复和分析检索时优先保留的情绪印象记忆条数，例如用户一贯的安抚、试探、失约或亲近模式"
+  },
+  "memory_prompt_summary_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 1,
+    "title": "长期总结记忆条数",
+    "description": "回复和分析检索时优先保留的长期总结记忆条数"
+  },
+  "memory_prompt_profile_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 1,
+    "title": "画像类记忆条数",
+    "description": "回复和分析检索时优先保留的画像类长期记忆条数；本地用户画像仍会单独注入"
+  },
+  "interaction_memory_min_delta": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 10,
+    "default": 2,
+    "title": "互动记忆情绪阈值",
+    "description": "本轮核心情绪数值变化总量达到该阈值时，才会选择性写入互动印象；带有偏好、承诺、边界等内容的消息会绕过该阈值"
+  },
+  "enable_memory_update_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆更新层",
+    "description": "重复出现或高重叠的新记忆会强化已有长期记忆，或将旧印象标记为被新印象覆盖，减少同类记忆碎片堆积"
+  },
+  "enable_memory_forgetting_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆遗忘层",
+    "description": "为长期记忆加入命中强化、时间衰减、检索降权与低价值旧印象清理，让玛丽亚更像会淡化而不是机械堆积记忆"
+  },
+  "memory_decay_days": {
+    "type": "int",
+    "minimum": 7,
+    "maximum": 365,
+    "default": 45,
+    "title": "记忆衰减天数",
+    "description": "情绪印象类长期记忆开始明显降权的大致天数；事件、总结和画像会更慢衰减"
+  },
+  "memory_hard_cleanup_days": {
+    "type": "int",
+    "minimum": 30,
+    "maximum": 3650,
+    "default": 180,
+    "title": "记忆清理天数",
+    "description": "被覆盖且长期未命中的低价值旧印象在达到该时长后会被清理；重大事件、边界和画像默认不会被轻易删除"
   },
   "marianna_temperature": {
     "type": "float",
     "minimum": 0.5,
     "maximum": 1.2,
     "default": 0.85,
-    "title": "回复温度"
+    "title": "回复温度",
+    "description": "LLM生成温度，越高回复越随机，越低越保守（建议0.7-1.0）"
+  },
+  "enable_value_dialogue_modulation": {
+    "type": "bool",
+    "default": true,
+    "title": "启用数值对话调制",
+    "description": "根据好感度、信任度、病娇值、锁定进度、焦虑值、优雅值和占有欲动态调整回复的亲疏、主动性、克制感与情绪外露"
+  },
+  "enable_emotion_recognition_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用情绪识别层",
+    "description": "将分析型LLM识别出的用户意图、用户情绪、关系信号和回应目标注入主回复提示，帮助行为层更自然地回应"
+  },
+  "enable_active_event_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用主动事件层",
+    "description": "允许玛丽亚在高焦虑、高亲密、强独占、锁定或秘密/承诺场景中低频主动推进一句，但不会覆盖当前话题"
+  },
+  "active_event_cooldown_turns": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 50,
+    "default": 7,
+    "title": "主动事件冷却轮数",
+    "description": "同一用户两次明显主动事件之间至少间隔的普通互动轮数，数值越大越克制"
+  },
+  "enable_reflection_update_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用反思更新层",
+    "description": "在回复后把本轮意图、情绪、关系信号、回应余味和主动事件整理成互动印象，供 Mnemosyne 长期记忆使用"
+  },
+  "marianna_analysis_provider_id": {
+    "type": "string",
+    "default": "",
+    "title": "分析型LLM提供商",
+    "description": "用于状态分析、用户画像提取、自动总结的模型提供商；留空时跟随当前会话聊天模型",
+    "_special": "select_provider"
+  },
+  "analysis_history_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 1000,
+    "default": 120,
+    "title": "分析候选历史条数",
+    "description": "状态分析前用于检索相关聊天记忆的最近历史扫描条数，0表示不检索历史"
+  },
+  "analysis_relevant_memory_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 200,
+    "default": 24,
+    "title": "分析相关记忆条数",
+    "description": "状态分析时最多提供给分析型LLM的相关聊天记忆条数；会优先保留最近上下文，再补充与最新发言相关的旧记忆"
+  },
+  "analysis_recent_context_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 50,
+    "default": 6,
+    "title": "分析保留最近上下文",
+    "description": "即使关键词不匹配，也保留最近N条聊天作为指代、省略和连续对话的上下文"
+  },
+  "analysis_mnemosyne_memory_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 50,
+    "default": 8,
+    "title": "分析 Mnemosyne 记忆条数",
+    "description": "状态分析时额外从 Mnemosyne 情感记忆中检索的长期记忆条数，需启用情感记忆且检测到 Mnemosyne；0 表示不用于数值分析"
+  },
+  "analysis_max_chars_per_msg": {
+    "type": "int",
+    "minimum": 100,
+    "maximum": 20000,
+    "default": 4000,
+    "title": "分析单条历史最大字符数",
+    "description": "状态分析和自动总结中每条历史消息的最大字符长度，用于长上下文模型前的轻量保护"
+  },
+  "analysis_context_char_budget": {
+    "type": "int",
+    "minimum": 10000,
+    "maximum": 1000000,
+    "default": 800000,
+    "title": "分析上下文总字符预算",
+    "description": "状态分析历史部分的总字符预算，按字符近似控制在百万token级窗口内"
+  },
+  "conversation_history_retention_limit": {
+    "type": "int",
+    "minimum": 200,
+    "maximum": 5000,
+    "default": 1000,
+    "title": "本地历史保留条数",
+    "description": "每个用户本地保留的最近对话消息条数，影响分析型LLM可读取的历史上限"
   },
   "marianna_debug_mode": {
     "type": "bool",
     "default": false,
-    "title": "调试模式",
-    "description": "开启后回复末尾显示数值变化"
+    "title": "默认调试模式",
+    "description": "作为新用户的默认调试开关，开启后回复末尾会附加当前数值信息；用户也可通过 /玛丽亚 调试 单独切换"
+  },
+  "enable_context_injection": {
+    "type": "bool",
+    "default": true,
+    "title": "启用LLM上下文注入",
+    "description": "开启后将把对话历史注入到每次LLM调用中，使玛丽亚能记住本次会话内容"
+  },
+  "context_history_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 1000,
+    "default": 10,
+    "title": "注入历史轮数",
+    "description": "向LLM注入最近N轮（user+assistant各算1条）对话历史，0表示不注入历史"
+  },
+  "inject_state_details": {
+    "type": "bool",
+    "default": true,
+    "title": "注入状态数值到系统提示",
+    "description": "将好感度、病娇值等数值以隐藏注释形式注入系统提示，辅助LLM理解当前情感强度"
+  },
+  "inject_summary_as_context": {
+    "type": "bool",
+    "default": true,
+    "title": "注入对话摘要到系统提示",
+    "description": "将最近一次自动/手动总结注入系统提示，作为跨会话长期记忆补充"
+  },
+  "context_max_tokens_per_msg": {
+    "type": "int",
+    "minimum": 50,
+    "maximum": 20000,
+    "default": 300,
+    "title": "历史消息最大字符数",
+    "description": "注入历史时每条消息的最大字符长度，超出部分将被截断以节省token"
   }
 }
