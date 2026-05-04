@@ -195,7 +195,14 @@ class MariannaProfileMixin:
             self.logger.debug(f"[profile] user={user_id} local_profile_update=1")
             return
 
-        clean_bot_reply = self._strip_debug_artifacts(bot_reply)
+        clean_user_msg = self._limit_text_for_prompt(
+            self._strip_debug_artifacts(user_msg),
+            PROFILE_ANALYSIS_MAX_CHARS_PER_SIDE,
+        )
+        clean_bot_reply = self._limit_text_for_prompt(
+            self._strip_debug_artifacts(bot_reply),
+            PROFILE_ANALYSIS_MAX_CHARS_PER_SIDE,
+        )
         json_schema = (
             '{\n'
             '  "基本信息": {"称呼": "", "生日": "", "职业": "", "所在地": ""},\n'
@@ -208,7 +215,7 @@ class MariannaProfileMixin:
         prompt = (
             f"分析对话，提取用户画像信息。只返回 JSON，格式如下：\n"
             f"{json_schema}\n"
-            f"对话：\n用户：{user_msg}\n玛丽亚：{clean_bot_reply}\n"
+            f"对话：\n用户：{clean_user_msg}\n玛丽亚：{clean_bot_reply}\n"
         )
         try:
             resp = await self._call_analysis_llm(

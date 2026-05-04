@@ -1028,11 +1028,14 @@ class MariannaMemoryMixin:
     def _has_personal_memory_cue(self, user_msg: str) -> bool:
         return bool(PERSONAL_MEMORY_CUE_PATTERN.search(self._normalize_analysis_content(user_msg)))
 
+    def _has_profile_update_cue(self, user_msg: str) -> bool:
+        return bool(PROFILE_UPDATE_CUE_PATTERN.search(self._normalize_analysis_content(user_msg)))
+
     def _should_update_user_profile(self, user_msg: str, state: Dict[str, Any]) -> bool:
         normalized = self._normalize_analysis_content(user_msg)
         if not normalized or normalized.startswith("/"):
             return False
-        if self._has_personal_memory_cue(normalized):
+        if self._has_profile_update_cue(normalized):
             return True
         if len(normalized) < PROFILE_UPDATE_MIN_CHARS:
             return False

@@ -61,6 +61,19 @@ class MariannaAnalysisMixin:
         normalized = WHITESPACE_PATTERN.sub(" ", normalized)
         return normalized
 
+    def _has_analysis_memory_anchor(self, text: str) -> bool:
+        return bool(ANALYSIS_MEMORY_ANCHOR_PATTERN.search(self._normalize_analysis_content(text)))
+
+    def _should_expand_analysis_history(self, latest_user_msg: str) -> bool:
+        normalized = self._normalize_analysis_content(latest_user_msg)
+        if not normalized:
+            return False
+        return (
+            self._has_analysis_memory_anchor(normalized)
+            or self._has_personal_memory_cue(normalized)
+            or bool(ANALYSIS_IMPORTANT_SIGNAL_PATTERN.search(normalized))
+        )
+
     def _score_analysis_memory_content(
         self,
         content: str,
@@ -114,8 +127,9 @@ class MariannaAnalysisMixin:
             ANALYSIS_CONTEXT_CHAR_BUDGET,
         )
         latest_normalized = self._normalize_analysis_content(latest_user_msg)
-        latest_terms = self._extract_mnemosyne_terms(latest_user_msg)
-        if latest_terms or len(latest_normalized) >= 8:
+        expand_history = self._should_expand_analysis_history(latest_user_msg)
+        latest_terms = self._extract_mnemosyne_terms(latest_user_msg) if expand_history else []
+        if expand_history:
             lookback = scan_limit
         else:
             lookback = min(scan_limit, max(1, int(recent_context_limit or 0)))
@@ -778,6 +792,65 @@ class MariannaAnalysisMixin:
             "关系信号": signal,
             "回应目标": goal,
         }
+
+    def _should_use_local_state_analysis(self, user_msg: str) -> bool:
+        if not getattr(self, "enable_token_cost_optimization", ENABLE_TOKEN_COST_OPTIMIZATION):
+            return False
+
+        normalized = self._normalize_analysis_content(user_msg)
+        if not normalized or normalized.startswith("/"):
+            return False
+        if self._has_analysis_memory_anchor(normalized):
+            return False
+        if len(normalized) <= LOCAL_ANALYSIS_MAX_CHARS and LOCAL_ANALYSIS_SIMPLE_PATTERN.search(normalized):
+            return True
+        return False
+
+    def _build_local_state_analysis(
+        self,
+        state: Dict[str, Any],
+        user_msg: str,
+        user_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not self._should_use_local_state_analysis(user_msg):
+            return None
+
+        normalized = self._normalize_analysis_content(user_msg)
+        favor = int(state.get("好感度", 0) or 0)
+        trust = int(state.get("信任度", 0) or 0)
+        deltas = {
+            "好感度": 0,
+            "病娇值": 0,
+            "锁定进度": 0,
+            "信任度": 0,
+            "焦虑值": 0,
+            "优雅值": 0,
+        }
+
+        if re.search(r"滚|恶心|烦|讨厌|闭嘴|羞辱", normalized):
+            deltas.update({"好感度": -2, "信任度": -1, "优雅值": -2})
+            if favor >= 30:
+                deltas["焦虑值"] = 1
+        elif re.search(r"对不起|抱歉|错了|原谅", normalized):
+            deltas.update({"信任度": 1, "优雅值": 1})
+            if favor >= 30:
+                deltas["焦虑值"] = -1
+        elif re.search(r"喜欢你|喜欢妳|爱你|想你|抱抱|亲亲", normalized):
+            deltas.update({"好感度": 2, "信任度": 1})
+            if favor >= 60 and trust >= 30:
+                deltas["病娇值"] = 1
+                if re.search(r"永远|唯一|只要你|只有你|命定", normalized):
+                    deltas["锁定进度"] = 1
+        elif re.search(r"谢谢|辛苦|真好|温柔|漂亮|可爱|厉害", normalized):
+            deltas.update({"好感度": 1, "信任度": 1})
+        elif re.search(r"晚安|再见|离开|走了|下了", normalized):
+            if favor >= 30:
+                deltas["焦虑值"] = 1
+
+        deltas = self._sanitize_analysis_deltas(state, deltas, user_id=user_id)
+        deltas = self._humanize_analysis_deltas(state, deltas, user_msg)
+        turn_analysis = self._build_fallback_turn_analysis(user_msg, deltas=deltas)
+        return {**deltas, "__turn_analysis": turn_analysis, "__local_analysis": True}
 
     def _normalize_turn_analysis(
         self,

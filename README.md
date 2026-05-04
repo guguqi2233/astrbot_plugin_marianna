@@ -2,7 +2,7 @@
 
 `astrbot_plugin_marianna` 是一个面向 AstrBot 的角色人格插件。它以“哈布斯堡贵族少女”为核心人设，通过额外的 LLM 语义分析、用户画像、对话历史和长期记忆，动态调整角色对用户的情感状态，并把这些状态注入主对话流程。
 
-当前版本：`v1.0.0`
+当前版本：`v1.0.1`
 
 ## 核心能力
 
@@ -13,7 +13,7 @@
 - 用户画像学习：自动提取称呼、生日、职业、所在地、兴趣偏好、沟通风格等信息。
 - 对话历史与总结：本地保留最近历史，并在空闲后自动生成长期总结。
 - Mnemosyne 集成：可选接入 Mnemosyne 长期记忆，支持分层检索、去重、强化、覆盖和遗忘。
-- 性能优化：缓存近期历史、记忆检索结果和动态提示词；低价值消息会走 compact prompt，减少不必要分析。
+- 成本优化：缓存近期历史、记忆检索结果和动态提示词；稳定人格提示放在 system prompt 前缀以提升输入缓存命中；低价值与常见短消息会走轻量路径，减少不必要分析。
 - 调试与观测：支持状态、画像、性能统计和调试尾注。
 
 ## 安装
@@ -74,6 +74,8 @@ on_llm_response
 - 无关旧事件不会反复推动数值变化，避免“旧账重复结算”。
 - 请求侧会隔离同用户并发消息，并在可识别的同一事件重入时复用分析结果，避免重复叠加数值。
 - 普通寒暄、低价值确认和极短消息会尽量跳过昂贵分析，改用轻量 prompt。
+- 简短感谢、道歉、晚安、普通赞美和轻微冒犯会优先使用本地轻量分析，只给小幅安全增量，不再额外调用分析型 LLM。
+- 只有出现“上次、记得、承诺、边界、别人”等回指信号或强关系信号时，分析侧才扩展扫描旧历史；普通消息只保留少量最近上下文。
 - 代码侧会对 LLM 返回增量做阶段校验，防止低好感直接跳到高病娇、高锁定或高占有。
 
 ## 情感系统
@@ -172,9 +174,11 @@ shared_memory/marianna_<safe_user_id>.jsonl
 | 配置项 | 默认值 | 说明 |
 | --- | ---: | --- |
 | `conversation_history_retention_limit` | `1000` | 每个用户本地保留的最近历史消息条数 |
+| `enable_token_cost_optimization` | `true` | 是否启用省 token 与缓存友好模式，会限制分析窗口、注入历史和记忆条数 |
+| `avoid_duplicate_context_injection` | `true` | 当 AstrBot 请求中已有上下文时，避免插件重复注入本地历史 |
 | `enable_context_injection` | `true` | 是否注入历史到 `req.contexts` |
-| `context_history_limit` | `10` | 注入主回复的历史条数 |
-| `context_max_tokens_per_msg` | `300` | 注入历史时单条消息最大长度 |
+| `context_history_limit` | `6` | 注入主回复的历史条数 |
+| `context_max_tokens_per_msg` | `220` | 注入历史时单条消息最大长度 |
 | `inject_state_details` | `true` | 是否将当前数值细节注入系统提示词 |
 | `inject_summary_as_context` | `true` | 当近期历史不足时是否注入最近总结 |
 | `auto_summary_interval` | `20` | 自动总结触发间隔 |
@@ -185,12 +189,12 @@ shared_memory/marianna_<safe_user_id>.jsonl
 | 配置项 | 默认值 | 说明 |
 | --- | ---: | --- |
 | `marianna_analysis_provider_id` | 空 | 分析、画像、总结使用的 provider；留空时跟随当前会话模型 |
-| `analysis_history_limit` | `120` | 状态分析前扫描的最近历史条数 |
-| `analysis_relevant_memory_limit` | `24` | 状态分析最多注入的相关聊天记忆条数 |
-| `analysis_recent_context_limit` | `6` | 固定保留的最近上下文条数 |
-| `analysis_mnemosyne_memory_limit` | `8` | 额外检索的 Mnemosyne 长期记忆条数 |
-| `analysis_max_chars_per_msg` | `4000` | 分析与总结时单条历史最大字符数 |
-| `analysis_context_char_budget` | `800000` | 分析历史部分总字符预算 |
+| `analysis_history_limit` | `32` | 状态分析前扫描的最近历史条数；普通消息不会扩展扫描旧历史 |
+| `analysis_relevant_memory_limit` | `8` | 状态分析最多注入的相关聊天记忆条数 |
+| `analysis_recent_context_limit` | `4` | 固定保留的最近上下文条数 |
+| `analysis_mnemosyne_memory_limit` | `3` | 额外检索的 Mnemosyne 长期记忆条数 |
+| `analysis_max_chars_per_msg` | `600` | 分析与总结时单条历史最大字符数 |
+| `analysis_context_char_budget` | `6000` | 分析历史部分总字符预算 |
 
 ### 画像与长期记忆
 
@@ -200,7 +204,7 @@ shared_memory/marianna_<safe_user_id>.jsonl
 | `enable_emotional_memory` | `true` | 是否启用 Mnemosyne 情感记忆 |
 | `enable_selective_interaction_memory` | `true` | 是否只写入有分量的互动印象 |
 | `interaction_memory_min_delta` | `2` | 互动印象写入的核心情绪变化阈值 |
-| `memory_prompt_limit` | `5` | 主回复最多注入的长期记忆条数 |
+| `memory_prompt_limit` | `3` | 主回复最多注入的长期记忆条数 |
 | `memory_prompt_event_limit` | `2` | 事件节点记忆名额 |
 | `memory_prompt_impression_limit` | `2` | 情绪印象记忆名额 |
 | `memory_prompt_summary_limit` | `1` | 长期总结记忆名额 |
@@ -270,6 +274,16 @@ git diff --check -- main.py marianna README.md metadata.yaml
 - 对外行为变更需要同步更新 `_conf_schema.json`、`metadata.yaml` 和 README。
 
 ## 版本历史
+
+### v1.0.1
+
+- 新增 token 成本优化模式，默认限制分析窗口、主回复历史注入长度和长期记忆注入条数，减少输入 token 消耗。
+- 将稳定人格提示拆到 system prompt 前缀，提高供应商输入缓存命中率；动态状态、记忆和本轮发言放在后段。
+- 简短感谢、道歉、晚安、普通赞美和轻微冒犯优先走本地轻量分析，不再额外调用分析型 LLM。
+- 分析侧仅在出现回指、承诺、边界、他人关系等信号时扩展扫描旧历史，普通消息只保留少量最近上下文。
+- 当 AstrBot 请求已带上下文时，插件默认不重复注入本地历史，避免同一段对话被重复计费。
+- 收紧画像更新触发条件，并限制画像分析输入长度，避免短句寒暄触发额外画像 LLM。
+- 新增配置项 `enable_token_cost_optimization` 与 `avoid_duplicate_context_injection`，可按需要关闭省 token 行为。
 
 ### v1.0.0
 

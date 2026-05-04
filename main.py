@@ -33,7 +33,7 @@ except ImportError:
     from marianna.turn import MariannaTurnMixin
 
 # ======================== Plugin Entry ========================
-@register("astrbot_plugin_marianna", "玛丽亚·特蕾莎·冯·哈布斯堡", "1.0.0", "guguqi2233")
+@register("astrbot_plugin_marianna", "玛丽亚·特蕾莎·冯·哈布斯堡", "1.0.1", "guguqi2233")
 class MariannaPersonality(
     MariannaRuntimeMixin,
     MariannaMemoryMixin,

@@ -177,6 +177,14 @@ class MariannaRuntimeMixin:
             self.auto_summary_idle = self.config.get("auto_summary_idle_time", 300)
             self.enable_profile = self.config.get("enable_user_profile", True)
             self.enable_emotional_memory = self.config.get("enable_emotional_memory", True)
+            self.enable_token_cost_optimization = self.config.get(
+                "enable_token_cost_optimization",
+                ENABLE_TOKEN_COST_OPTIMIZATION,
+            )
+            self.avoid_duplicate_context_injection = self.config.get(
+                "avoid_duplicate_context_injection",
+                AVOID_DUPLICATE_CONTEXT_INJECTION,
+            )
             self.enable_selective_interaction_memory = self.config.get(
                 "enable_selective_interaction_memory",
                 True,
@@ -309,7 +317,7 @@ class MariannaRuntimeMixin:
             self.analysis_context_char_budget = self._get_config_int(
                 "analysis_context_char_budget",
                 ANALYSIS_CONTEXT_CHAR_BUDGET,
-                minimum=10_000,
+                minimum=1_000,
                 maximum=1_000_000,
             )
             self.history_retention_limit = self._get_config_int(
@@ -322,6 +330,43 @@ class MariannaRuntimeMixin:
                 "enable_performance_logging",
                 True,
             )
+            if self.enable_token_cost_optimization:
+                self.memory_prompt_limit = min(
+                    self.memory_prompt_limit,
+                    TOKEN_OPT_MEMORY_PROMPT_LIMIT,
+                )
+                self.max_context_messages = min(
+                    self.max_context_messages,
+                    TOKEN_OPT_CONTEXT_HISTORY_LIMIT,
+                )
+                self.max_tokens_per_message = min(
+                    self.max_tokens_per_message,
+                    TOKEN_OPT_CONTEXT_MAX_CHARS_PER_MSG,
+                )
+                self.analysis_history_limit = min(
+                    self.analysis_history_limit,
+                    TOKEN_OPT_ANALYSIS_HISTORY_LIMIT,
+                )
+                self.analysis_relevant_memory_limit = min(
+                    self.analysis_relevant_memory_limit,
+                    TOKEN_OPT_ANALYSIS_RELEVANT_MEMORY_LIMIT,
+                )
+                self.analysis_recent_context_limit = min(
+                    self.analysis_recent_context_limit,
+                    TOKEN_OPT_ANALYSIS_RECENT_CONTEXT_LIMIT,
+                )
+                self.analysis_mnemosyne_memory_limit = min(
+                    self.analysis_mnemosyne_memory_limit,
+                    TOKEN_OPT_ANALYSIS_MNEMOSYNE_MEMORY_LIMIT,
+                )
+                self.analysis_max_chars_per_message = min(
+                    self.analysis_max_chars_per_message,
+                    TOKEN_OPT_ANALYSIS_MAX_CHARS_PER_MSG,
+                )
+                self.analysis_context_char_budget = min(
+                    self.analysis_context_char_budget,
+                    TOKEN_OPT_ANALYSIS_CONTEXT_CHAR_BUDGET,
+                )
             if hasattr(self, "_static_prompt_cache"):
                 self._static_prompt_cache.clear()
             if hasattr(self, "_dynamic_prompt_cache"):

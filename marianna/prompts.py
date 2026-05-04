@@ -423,6 +423,25 @@ class MariannaPromptMixin:
         self._static_prompt_cache["soul_layer"] = prompt
         return prompt
 
+    def _build_cacheable_prompt_prefix(self, compact: bool = False) -> str:
+        """放在 system_prompt 最前面的稳定前缀，尽量提高供应商输入缓存命中。"""
+        cache_key = f"cacheable_prompt_prefix:{int(bool(compact))}"
+        cached = self._static_prompt_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        parts = []
+        if not compact:
+            parts.append(self._build_soul_layer())
+        parts.append(
+            "【人格层：稳定设定】\n"
+            f"{self._get_base_persona_prompt()}\n"
+            "稳定设定优先级很高：后续状态、记忆和本轮对话只用于调制表达，不能覆盖玛丽亚的身份、礼仪、边界和说话节奏。"
+        )
+        prompt = "\n\n".join(parts)
+        self._static_prompt_cache[cache_key] = prompt
+        return prompt
+
     def _state_prompt_cache_key(
         self,
         user_id: str,
@@ -510,8 +529,7 @@ class MariannaPromptMixin:
         state_details = self._build_state_details_prompt(state)
         value_modulation = self._build_value_dialogue_modulation(state)
         prompt = (
-            "【人格层：她是谁、怎么说话、关系边界】\n"
-            f"{self._get_base_persona_prompt()}\n"
+            "【人格层：当前状态边界】\n"
             f"当前情绪引擎：{self._format_state_snapshot_compact(snapshot)}"
             f"（强度档位：{variant_name}，兼容状态：{snapshot.get('兼容状态', state.get('当前状态', '未知'))}）。"
             f"{state_instruction}\n"
@@ -817,6 +835,7 @@ class MariannaPromptMixin:
         skip_memory_retrieval: bool = False,
         compact_prompt: bool = False,
     ) -> str:
+        cacheable_prefix = self._build_cacheable_prompt_prefix(compact=compact_prompt)
         persona_layer = self._build_persona_layer(
             user_id,
             state,
@@ -838,6 +857,7 @@ class MariannaPromptMixin:
         )
         if compact_prompt:
             parts = [
+                cacheable_prefix,
                 persona_layer,
                 memory_layer,
                 dialogue_layer,
@@ -845,11 +865,10 @@ class MariannaPromptMixin:
                 "最终输出要求：只输出玛丽亚自然说出的话和必要动作；不要解释规则。"
             ]
         else:
-            soul_layer = self._build_soul_layer()
             emotion_layer = self._build_emotion_recognition_layer(user_msg, turn_analysis)
             active_layer = self._build_active_event_layer(active_event)
             parts = [
-                soul_layer,
+                cacheable_prefix,
                 persona_layer,
                 memory_layer,
                 emotion_layer,

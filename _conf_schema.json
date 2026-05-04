@@ -91,6 +91,18 @@
     "title": "启用情感记忆(需 Mnemosyne)",
     "description": "开启后玛丽亚会根据对话内容学习用户的情感状态，并在后续对话中进行个性化回复"
   },
+  "enable_token_cost_optimization": {
+    "type": "bool",
+    "default": true,
+    "title": "启用Token成本优化",
+    "description": "开启后会限制分析窗口、注入历史和记忆条数，并优先使用可缓存提示词布局；如确需大上下文可关闭"
+  },
+  "avoid_duplicate_context_injection": {
+    "type": "bool",
+    "default": true,
+    "title": "避免重复注入上下文",
+    "description": "当 AstrBot 请求中已经存在上下文时，不再额外注入插件本地历史，避免同一段聊天被重复计费"
+  },
   "enable_selective_interaction_memory": {
     "type": "bool",
     "default": true,
@@ -101,7 +113,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 20,
-    "default": 5,
+    "default": 3,
     "title": "回复注入记忆条数",
     "description": "主回复系统提示中最多注入的 Mnemosyne 相关记忆条数；0 表示不向主回复注入长期记忆"
   },
@@ -224,7 +236,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 1000,
-    "default": 120,
+    "default": 32,
     "title": "分析候选历史条数",
     "description": "状态分析前用于检索相关聊天记忆的最近历史扫描条数，0表示不检索历史"
   },
@@ -232,7 +244,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 200,
-    "default": 24,
+    "default": 8,
     "title": "分析相关记忆条数",
     "description": "状态分析时最多提供给分析型LLM的相关聊天记忆条数；会优先保留最近上下文，再补充与最新发言相关的旧记忆"
   },
@@ -240,7 +252,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 50,
-    "default": 6,
+    "default": 4,
     "title": "分析保留最近上下文",
     "description": "即使关键词不匹配，也保留最近N条聊天作为指代、省略和连续对话的上下文"
   },
@@ -248,7 +260,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 50,
-    "default": 8,
+    "default": 3,
     "title": "分析 Mnemosyne 记忆条数",
     "description": "状态分析时额外从 Mnemosyne 情感记忆中检索的长期记忆条数，需启用情感记忆且检测到 Mnemosyne；0 表示不用于数值分析"
   },
@@ -256,17 +268,17 @@
     "type": "int",
     "minimum": 100,
     "maximum": 20000,
-    "default": 4000,
+    "default": 600,
     "title": "分析单条历史最大字符数",
     "description": "状态分析和自动总结中每条历史消息的最大字符长度，用于长上下文模型前的轻量保护"
   },
   "analysis_context_char_budget": {
     "type": "int",
-    "minimum": 10000,
+    "minimum": 1000,
     "maximum": 1000000,
-    "default": 800000,
+    "default": 6000,
     "title": "分析上下文总字符预算",
-    "description": "状态分析历史部分的总字符预算，按字符近似控制在百万token级窗口内"
+    "description": "状态分析历史部分的总字符预算，按字符近似限制分析请求的输入规模"
   },
   "conversation_history_retention_limit": {
     "type": "int",
@@ -292,7 +304,7 @@
     "type": "int",
     "minimum": 0,
     "maximum": 1000,
-    "default": 10,
+    "default": 6,
     "title": "注入历史轮数",
     "description": "向LLM注入最近N轮（user+assistant各算1条）对话历史，0表示不注入历史"
   },
@@ -312,7 +324,7 @@
     "type": "int",
     "minimum": 50,
     "maximum": 20000,
-    "default": 300,
+    "default": 220,
     "title": "历史消息最大字符数",
     "description": "注入历史时每条消息的最大字符长度，超出部分将被截断以节省token"
   }

@@ -60,66 +60,20 @@ class MariannaTurnMixin:
             for field in prompt_fields
         }
 
-    async def _run_turn_analysis(
+    async def _commit_turn_analysis_result(
         self,
-        event: AstrMessageEvent,
+        *,
         user_id: str,
         user_name: str,
         session_key: str,
-        message_text: str,
         message_key: str,
+        message_text: str,
         state: Dict[str, Any],
         old_state_name: str,
         old_lock_progress: int,
+        analysis_result: Dict[str, Any],
+        analysis_fingerprint: Optional[str] = None,
     ) -> Dict[str, Any]:
-        skip_analysis = self._should_skip_analysis_llm(message_text)
-
-        if skip_analysis:
-            self._touch_state_interaction(state)
-            self._schedule_state_save(user_id, state)
-            self._spawn_task(self._add_to_history(user_id, "user", message_text))
-            self.logger.debug(f"[on_llm_request] user={user_id} analysis_skipped=1")
-            return {
-                "applied_changes": {},
-                "turn_analysis": self._build_fallback_turn_analysis(message_text, deltas={}),
-                "active_event": {},
-                "skip_analysis": True,
-                "is_duplicate_analysis": False,
-            }
-
-        analysis_history_entries = await self._get_analysis_memory_entries(
-            user_id,
-            message_text,
-        )
-        analysis_fingerprint = self._build_analysis_request_fingerprint(
-            session_key,
-            message_text,
-            analysis_history_entries,
-        )
-        cached_analysis = self._analysis_request_cache.get(session_key, {})
-        is_duplicate_analysis = (
-            isinstance(cached_analysis, dict)
-            and cached_analysis.get("fingerprint") == analysis_fingerprint
-        )
-
-        if is_duplicate_analysis:
-            self.logger.debug(f"[on_llm_request] user={user_id} analysis_cache_hit=1")
-            return {
-                "applied_changes": dict(cached_analysis.get("applied_changes", {})),
-                "turn_analysis": dict(cached_analysis.get("turn_analysis", {})),
-                "active_event": dict(cached_analysis.get("active_event", {})),
-                "skip_analysis": False,
-                "is_duplicate_analysis": True,
-            }
-
-        self._touch_state_interaction(state)
-        analysis_result = await self._analyze_state_changes(
-            event,
-            user_id,
-            state,
-            message_text,
-            history_entries=analysis_history_entries,
-        )
         turn_analysis = self._extract_turn_analysis(analysis_result)
         deltas = self._extract_analysis_deltas(analysis_result)
         if not turn_analysis:
@@ -178,13 +132,14 @@ class MariannaTurnMixin:
                 )
             )
 
-        self._analysis_request_cache[session_key] = {
-            "fingerprint": analysis_fingerprint,
-            "applied_changes": dict(applied_changes),
-            "turn_analysis": dict(turn_analysis),
-            "active_event": dict(active_event),
-            "_created_at": time.monotonic(),
-        }
+        if analysis_fingerprint:
+            self._analysis_request_cache[session_key] = {
+                "fingerprint": analysis_fingerprint,
+                "applied_changes": dict(applied_changes),
+                "turn_analysis": dict(turn_analysis),
+                "active_event": dict(active_event),
+                "_created_at": time.monotonic(),
+            }
         self._schedule_state_save(user_id, state)
         self._spawn_task(self._add_to_history(user_id, "user", message_text))
 
@@ -195,6 +150,99 @@ class MariannaTurnMixin:
             "skip_analysis": False,
             "is_duplicate_analysis": False,
         }
+
+    async def _run_turn_analysis(
+        self,
+        event: AstrMessageEvent,
+        user_id: str,
+        user_name: str,
+        session_key: str,
+        message_text: str,
+        message_key: str,
+        state: Dict[str, Any],
+        old_state_name: str,
+        old_lock_progress: int,
+    ) -> Dict[str, Any]:
+        skip_analysis = self._should_skip_analysis_llm(message_text)
+
+        if skip_analysis:
+            self._touch_state_interaction(state)
+            self._schedule_state_save(user_id, state)
+            self._spawn_task(self._add_to_history(user_id, "user", message_text))
+            self.logger.debug(f"[on_llm_request] user={user_id} analysis_skipped=1")
+            return {
+                "applied_changes": {},
+                "turn_analysis": self._build_fallback_turn_analysis(message_text, deltas={}),
+                "active_event": {},
+                "skip_analysis": True,
+                "is_duplicate_analysis": False,
+            }
+
+        local_analysis_result = self._build_local_state_analysis(
+            state,
+            message_text,
+            user_id=user_id,
+        )
+        if local_analysis_result is not None:
+            self._touch_state_interaction(state)
+            self.logger.debug(f"[on_llm_request] user={user_id} analysis_local=1")
+            return await self._commit_turn_analysis_result(
+                user_id=user_id,
+                user_name=user_name,
+                session_key=session_key,
+                message_key=message_key,
+                message_text=message_text,
+                state=state,
+                old_state_name=old_state_name,
+                old_lock_progress=old_lock_progress,
+                analysis_result=local_analysis_result,
+            )
+
+        analysis_history_entries = await self._get_analysis_memory_entries(
+            user_id,
+            message_text,
+        )
+        analysis_fingerprint = self._build_analysis_request_fingerprint(
+            session_key,
+            message_text,
+            analysis_history_entries,
+        )
+        cached_analysis = self._analysis_request_cache.get(session_key, {})
+        is_duplicate_analysis = (
+            isinstance(cached_analysis, dict)
+            and cached_analysis.get("fingerprint") == analysis_fingerprint
+        )
+
+        if is_duplicate_analysis:
+            self.logger.debug(f"[on_llm_request] user={user_id} analysis_cache_hit=1")
+            return {
+                "applied_changes": dict(cached_analysis.get("applied_changes", {})),
+                "turn_analysis": dict(cached_analysis.get("turn_analysis", {})),
+                "active_event": dict(cached_analysis.get("active_event", {})),
+                "skip_analysis": False,
+                "is_duplicate_analysis": True,
+            }
+
+        self._touch_state_interaction(state)
+        analysis_result = await self._analyze_state_changes(
+            event,
+            user_id,
+            state,
+            message_text,
+            history_entries=analysis_history_entries,
+        )
+        return await self._commit_turn_analysis_result(
+            user_id=user_id,
+            user_name=user_name,
+            session_key=session_key,
+            message_key=message_key,
+            message_text=message_text,
+            state=state,
+            old_state_name=old_state_name,
+            old_lock_progress=old_lock_progress,
+            analysis_result=analysis_result,
+            analysis_fingerprint=analysis_fingerprint,
+        )
 
     async def _inject_prompt_and_context(
         self,
@@ -229,8 +277,12 @@ class MariannaTurnMixin:
         existing_contexts = list(getattr(req, "contexts", []) or [])
         if self.context_injection_enabled:
             contexts = []
+            skip_plugin_history = (
+                bool(existing_contexts)
+                and getattr(self, "avoid_duplicate_context_injection", True)
+            )
 
-            if self.inject_history:
+            if self.inject_history and not skip_plugin_history:
                 history = await self._get_recent_history_async(
                     user_id,
                     limit=self.max_context_messages,
@@ -243,7 +295,7 @@ class MariannaTurnMixin:
                     )
                     contexts.append({"role": role, "content": content})
 
-            if self.inject_summary_in_context and not contexts:
+            if self.inject_summary_in_context and not contexts and not existing_contexts:
                 prof = self._get_profile(user_id)
                 summaries = prof.get("玛丽亚学习笔记", {}).get("自动总结", [])
                 if summaries:
@@ -254,6 +306,8 @@ class MariannaTurnMixin:
 
             if contexts:
                 req.contexts = contexts + existing_contexts
+            elif skip_plugin_history:
+                req.contexts = existing_contexts
 
         self._log_perf(
             "inject_contexts",
