@@ -1552,13 +1552,23 @@ class MariannaRuntimeMixin:
             return f"scene:{scene_hash}"
         return "private"
 
-    def _select_recent_scoped_state_id(self, raw_user_id: str, scoped_user_id: str) -> str:
+    def _select_recent_scoped_state_id(
+        self,
+        raw_user_id: str,
+        scoped_user_id: str,
+        *,
+        allow_ambiguous: bool = True,
+    ) -> str:
         user_states = self._get_user_states_store()
         existing = user_states.get(scoped_user_id)
+        interaction_key = "\u4e92\u52a8\u8ba1\u6570"
+        explanation_key = "\u6700\u8fd1\u72b6\u6001\u89e3\u91ca"
+        history_key = "\u8bca\u65ad\u5386\u53f2"
+        last_time_key = "\u6700\u540e\u4e92\u52a8\u65f6\u95f4"
         if isinstance(existing, dict) and (
-            self._coerce_runtime_int(existing.get("äº’åŠ¨è®¡æ•°", 0), default=0, minimum=0) > 0
-            or existing.get("æœ€è¿‘çŠ¶æ€è§£é‡Š")
-            or existing.get("è¯Šæ–­åŽ†å²")
+            self._coerce_runtime_int(existing.get(interaction_key, 0), default=0, minimum=0) > 0
+            or existing.get(explanation_key)
+            or existing.get(history_key)
         ):
             return scoped_user_id
 
@@ -1567,17 +1577,19 @@ class MariannaRuntimeMixin:
         for key, state in user_states.items():
             if not isinstance(key, str) or not key.endswith(suffix) or not isinstance(state, dict):
                 continue
-            score = float(self._coerce_runtime_int(state.get("äº’åŠ¨è®¡æ•°", 0), default=0, minimum=0))
-            last_time = self._parse_iso_datetime(state.get("æœ€åŽäº’åŠ¨æ—¶é—´"))
+            score = float(self._coerce_runtime_int(state.get(interaction_key, 0), default=0, minimum=0))
+            last_time = self._parse_iso_datetime(state.get(last_time_key))
             if last_time:
                 score += last_time.timestamp() / 1000000000.0
-            if state.get("æœ€è¿‘çŠ¶æ€è§£é‡Š") or state.get("è¯Šæ–­åŽ†å²"):
+            if state.get(explanation_key) or state.get(history_key):
                 score += 1000000.0
             candidates.append((score, key))
-        if candidates:
-            candidates.sort(reverse=True)
-            return candidates[0][1]
-        return scoped_user_id
+        if not candidates:
+            return scoped_user_id
+        if not allow_ambiguous and len(candidates) > 1:
+            return scoped_user_id
+        candidates.sort(reverse=True)
+        return candidates[0][1]
 
     def _get_scoped_user_id(
         self,
@@ -1593,9 +1605,11 @@ class MariannaRuntimeMixin:
             return f"{scene_key}::{raw_user_id}"
         if mode == "private_global_group_scene" and self._is_group_event(event):
             scoped_user_id = f"{scene_key}::{raw_user_id}"
-            if not self._get_event_group_id(event):
-                return self._select_recent_scoped_state_id(raw_user_id, scoped_user_id)
-            return scoped_user_id
+            return self._select_recent_scoped_state_id(
+                raw_user_id,
+                scoped_user_id,
+                allow_ambiguous=not bool(self._get_event_group_id(event)),
+            )
         return raw_user_id
 
     def _get_command_scoped_user_id(
