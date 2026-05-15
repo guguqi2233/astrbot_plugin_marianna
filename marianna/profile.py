@@ -188,8 +188,10 @@ class MariannaProfileMixin:
         profile = self._get_profile(user_id)
         local_updates = self._extract_local_profile_updates(user_msg)
         if self._merge_profile_update_data(profile, local_updates):
-            profile["互动记录"]["总互动次数"] = int(
-                profile["互动记录"].get("总互动次数", 0) or 0
+            profile["互动记录"]["总互动次数"] = self._coerce_store_int(
+                profile["互动记录"].get("总互动次数", 0),
+                default=0,
+                minimum=0,
             ) + 1
             self._schedule_profile_save(user_id, profile)
             self.logger.debug(f"[profile] user={user_id} local_profile_update=1")
@@ -233,8 +235,10 @@ class MariannaProfileMixin:
                 self.logger.warning(f"用户画像分析未返回有效 JSON: {resp.completion_text!r}")
                 return
             if self._merge_profile_update_data(profile, data):
-                profile["互动记录"]["总互动次数"] = int(
-                    profile["互动记录"].get("总互动次数", 0) or 0
+                profile["互动记录"]["总互动次数"] = self._coerce_store_int(
+                    profile["互动记录"].get("总互动次数", 0),
+                    default=0,
+                    minimum=0,
                 ) + 1
                 self._schedule_profile_save(user_id, profile)
         except Exception as e:

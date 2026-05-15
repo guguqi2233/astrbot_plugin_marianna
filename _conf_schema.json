@@ -42,16 +42,16 @@
   "marianna_favor_multiplier": {
     "type": "float",
     "minimum": 0.5,
-    "maximum": 2.0,
-    "default": 1.0,
+    "maximum": 2,
+    "default": 1,
     "title": "好感度变化倍率",
     "description": "修改好感度变化倍率，>1加速好感度变化，<1减缓好感度变化"
   },
   "marianna_yan_multiplier": {
     "type": "float",
     "minimum": 0.5,
-    "maximum": 2.0,
-    "default": 1.0,
+    "maximum": 2,
+    "default": 1,
     "title": "病娇值变化倍率",
     "description": "修改病娇值变化倍率，>1加速病娇值变化，<1减缓病娇值变化"
   },
@@ -88,8 +88,25 @@
   "enable_emotional_memory": {
     "type": "bool",
     "default": true,
-    "title": "启用情感记忆(需 Mnemosyne)",
+    "title": "启用情感记忆",
     "description": "开启后玛丽亚会根据对话内容学习用户的情感状态，并在后续对话中进行个性化回复"
+  },
+  "enable_builtin_memory": {
+    "type": "bool",
+    "default": true,
+    "title": "启用内置本地记忆",
+    "description": "使用插件自带 SQLite + 分层检索记忆系统；无需依赖其他插件，FTS5 可用时自动启用全文检索"
+  },
+  "state_scope_mode": {
+    "type": "string",
+    "default": "private_global_group_scene",
+    "title": "人格状态作用域",
+    "description": "控制好感、记忆、画像和历史如何区分私聊/群聊。user_global=同一用户全局共用；scene_user=每个会话来源都独立；private_global_group_scene=私聊共用深关系，群聊按群+用户独立。",
+    "enum": [
+      "user_global",
+      "scene_user",
+      "private_global_group_scene"
+    ]
   },
   "enable_token_cost_optimization": {
     "type": "bool",
@@ -103,19 +120,297 @@
     "title": "避免重复注入上下文",
     "description": "当 AstrBot 请求中已经存在上下文时，不再额外注入插件本地历史，避免同一段聊天被重复计费"
   },
+  "enable_adaptive_lightweight_prompt": {
+    "type": "bool",
+    "default": true,
+    "title": "启用自适应轻量Prompt",
+    "description": "短句、弱关系信号且已跳过长期记忆召回时，自动使用更短的主回复提示词，降低输入 token 成本"
+  },
+  "adaptive_lightweight_prompt_max_chars": {
+    "type": "int",
+    "minimum": 4,
+    "maximum": 200,
+    "default": 36,
+    "title": "自适应轻量Prompt短句阈值",
+    "description": "用户本轮消息长度不超过该字符数，且没有强关系信号时，才允许自动切换轻量 prompt"
+  },
+  "enable_prompt_budget_guard": {
+    "type": "bool",
+    "default": true,
+    "title": "启用Prompt预算保护",
+    "description": "主回复系统提示词估算超过预算时，自动回退到轻量 prompt，避免单轮输入 token 异常膨胀"
+  },
+  "prompt_token_budget": {
+    "type": "int",
+    "minimum": 300,
+    "maximum": 50000,
+    "default": 2200,
+    "title": "主回复Prompt预算",
+    "description": "主回复 system prompt 的本地估算 token 上限；超过后会触发预算保护并重组为轻量 prompt"
+  },
+  "enable_prompt_budget_memory_anchor": {
+    "type": "bool",
+    "default": true,
+    "title": "启用预算保护记忆锚点",
+    "description": "Prompt 预算保护触发后，仍允许保留少量事件/画像类高价值短记忆，避免承诺、称呼和边界完全断线"
+  },
+  "prompt_budget_memory_anchor_chars": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 1000,
+    "default": 160,
+    "title": "预算保护记忆锚点字符预算",
+    "description": "预算保护轻量 prompt 中最多保留多少字符的关键记忆锚点；0 表示不保留"
+  },
+  "prompt_budget_history_limit": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 12,
+    "title": "Prompt预算历史窗口",
+    "description": "本地保留最近多少轮 prompt 预算命中记录，用于诊断预算保护是否过于频繁"
+  },
+  "enable_prompt_cost_profile_stats": {
+    "type": "bool",
+    "default": true,
+    "title": "启用Prompt成本画像统计",
+    "description": "为每个用户本地记录近若干轮 prompt token、预算命中、轻量率和记忆注入条数，用于诊断 token 成本趋势"
+  },
+  "prompt_cost_profile_window": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 20,
+    "title": "Prompt成本画像窗口",
+    "description": "成本画像统计保留最近多少轮样本；数值越大越平滑，数值越小越敏感"
+  },
+  "enable_prompt_cost_auto_memory_mode": {
+    "type": "bool",
+    "default": true,
+    "title": "启用成本画像自动记忆档位",
+    "description": "预算压力下根据每个用户的成本画像临时选择 lean/balanced/rich 记忆档位；不永久修改 memory_mode_preset"
+  },
+  "prompt_cost_auto_lean_hit_rate": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 45,
+    "title": "自动切 lean 的预算命中率",
+    "description": "成本画像中预算保护命中率达到该百分比时，预算压力下优先使用 lean 记忆档位"
+  },
+  "prompt_cost_auto_balanced_hit_rate": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 100,
+    "default": 20,
+    "title": "自动切 balanced 的预算命中率",
+    "description": "成本画像中预算保护命中率达到该百分比时，预算压力下至少使用 balanced 记忆档位"
+  },
+  "prompt_cost_auto_mode_sticky_turns": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 2,
+    "title": "自动记忆档位升档防抖轮数",
+    "description": "从 lean 升回 balanced/rich 等更宽松档位前需要连续命中多少轮；0 表示不防抖"
+  },
+  "enable_prompt_budget_auto_throttle": {
+    "type": "bool",
+    "default": true,
+    "title": "启用Prompt预算自动降档",
+    "description": "当最近预算保护频繁触发时，按Prompt热层临时减少记忆、风格指纹或主动事件注入；不永久改动配置"
+  },
+  "prompt_budget_auto_throttle_min_streak": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 10,
+    "default": 2,
+    "title": "Prompt预算自动降档连续命中门槛",
+    "description": "连续多少轮触发预算保护后才允许自动降档；数值越高越保守"
+  },
+  "prompt_budget_auto_throttle_recovery_turns": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 10,
+    "default": 2,
+    "title": "Prompt预算自动降档恢复轮数",
+    "description": "连续多少轮未触发预算保护后停止自动降档，避免成本恢复后仍过度压缩"
+  },
+  "enable_prompt_budget_compression_tiers": {
+    "type": "bool",
+    "default": true,
+    "title": "启用Prompt预算压缩分级",
+    "description": "热层不明显时按压力等级渐进压缩：先压风格指纹，再压主动事件，再压记忆，最后才使用轻量 prompt"
+  },
+  "prompt_budget_heavy_compact_streak": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 20,
+    "default": 5,
+    "title": "Prompt预算极重压缩连续命中阈值",
+    "description": "连续命中预算保护达到该轮数时才进入极重压缩并使用轻量 prompt，避免人格过早变薄"
+  },
+  "prompt_budget_throttle_log_limit": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 50,
+    "default": 8,
+    "title": "Prompt预算降档日志上限",
+    "description": "每个用户本地保留多少条最近预算自动降档记录，用于诊断最近压缩过哪些层"
+  },
+  "prompt_budget_throttle_escalation_hits": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 10,
+    "default": 3,
+    "title": "Prompt预算降档退避门槛",
+    "description": "同一Prompt热层连续多次触发自动降档后，临时启用更强退避，例如把记忆注入压到更低或直接使用轻量prompt"
+  },
+  "prompt_budget_throttle_escalation_recovery_clear": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 10,
+    "default": 1,
+    "title": "Prompt预算强退避恢复门槛",
+    "description": "连续多少轮未触发预算保护后先退出强退避，避免成本刚恢复时仍保持过度压缩"
+  },
+  "enable_prompt_budget_memory_mode_adaptation": {
+    "type": "bool",
+    "default": true,
+    "title": "启用Prompt预算记忆模式自适应",
+    "description": "预算压力较高时，按lean/balanced/rich记忆模式临时限制本轮记忆注入条数，作为自动降档前的温和成本控制"
+  },
+  "prompt_budget_memory_mode_pressure_hit_rate": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 34,
+    "title": "Prompt预算记忆模式压力命中率",
+    "description": "最近预算保护命中率达到该百分比，或出现连续命中时，启用记忆模式软上限"
+  },
+  "prompt_budget_memory_mode_lean_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 20,
+    "default": 1,
+    "title": "Lean模式预算压力记忆上限",
+    "description": "预算压力下，lean记忆模式本轮最多注入多少条长期记忆"
+  },
+  "prompt_budget_memory_mode_balanced_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 20,
+    "default": 2,
+    "title": "Balanced模式预算压力记忆上限",
+    "description": "预算压力下，balanced记忆模式本轮最多注入多少条长期记忆"
+  },
+  "prompt_budget_memory_mode_rich_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 20,
+    "default": 3,
+    "title": "Rich模式预算压力记忆上限",
+    "description": "预算压力下，rich记忆模式本轮最多注入多少条长期记忆"
+  },
+  "prompt_budget_memory_mode_lean_chars": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 5000,
+    "default": 120,
+    "title": "Lean模式预算压力记忆字符上限",
+    "description": "预算压力下，lean记忆模式本轮相关记忆注入的总字符预算；0表示不额外限制字符"
+  },
+  "prompt_budget_memory_mode_balanced_chars": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 5000,
+    "default": 180,
+    "title": "Balanced模式预算压力记忆字符上限",
+    "description": "预算压力下，balanced记忆模式本轮相关记忆注入的总字符预算；0表示不额外限制字符"
+  },
+  "prompt_budget_memory_mode_rich_chars": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 5000,
+    "default": 260,
+    "title": "Rich模式预算压力记忆字符上限",
+    "description": "预算压力下，rich记忆模式本轮相关记忆注入的总字符预算；0表示不额外限制字符"
+  },
+  "enable_prompt_budget_memory_value_priority": {
+    "type": "bool",
+    "default": true,
+    "title": "启用预算压力记忆价值优先",
+    "description": "记忆字符预算较紧时，优先保留事件、画像、总结和高显著度记忆，减少普通印象抢占预算"
+  },
+  "prompt_budget_memory_priority_char_trigger": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 5000,
+    "default": 260,
+    "title": "记忆价值优先字符触发阈值",
+    "description": "本轮记忆字符预算不高于该值时启用价值优先排序；0表示只要启用预算记忆适应就排序"
+  },
+  "enable_prompt_budget_memory_candidate_expansion": {
+    "type": "bool",
+    "default": true,
+    "title": "启用预算压力记忆候选扩展",
+    "description": "记忆预算紧张且启用价值优先时，先多取少量本地候选再筛选注入，避免关键记忆因检索上限过低而缺席"
+  },
+  "prompt_budget_memory_candidate_multiplier": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 10,
+    "default": 3,
+    "title": "预算压力记忆候选扩展倍数",
+    "description": "预算压力下本地记忆检索候选数量相对最终注入条数的倍数；只影响本地候选池，不增加最终 prompt 注入条数"
+  },
+  "prompt_budget_memory_candidate_max": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 12,
+    "title": "预算压力记忆候选扩展上限",
+    "description": "预算压力下每个记忆来源最多检索多少条候选，防止本地检索候选池过大"
+  },
+  "enable_prompt_memory_slot_dedup": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆槽位去重",
+    "description": "注入 prompt 前按称呼、生日、边界、承诺、秘密、偏好等轻量槽位去重，同一槽位只保留更高价值或更新的记忆"
+  },
+  "enable_prompt_memory_selection_trace": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆入选原因追踪",
+    "description": "记录最终进入 prompt 的前几条记忆的槽位、层级、显著度和入选原因，用于 /玛丽亚 诊断 调参"
+  },
+  "prompt_memory_selection_trace_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 3,
+    "title": "记忆入选原因追踪条数",
+    "description": "诊断中最多显示多少条本轮入选记忆原因；0 表示不记录"
+  },
   "enable_selective_interaction_memory": {
     "type": "bool",
     "default": true,
     "title": "选择性记录互动印象",
     "description": "开启后只将有情绪分量、承诺、偏好、边界或秘密的互动写入 Mnemosyne，避免普通寒暄污染长期记忆"
   },
+  "enable_memory_quality_filter": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆质量过滤",
+    "description": "过滤普通寒暄、低显著度和短文本互动，减少长期记忆噪音"
+  },
   "memory_prompt_limit": {
     "type": "int",
     "minimum": 0,
     "maximum": 20,
-    "default": 3,
+    "default": 5,
     "title": "回复注入记忆条数",
-    "description": "主回复系统提示中最多注入的 Mnemosyne 相关记忆条数；0 表示不向主回复注入长期记忆"
+    "description": "主回复系统提示中最多注入的长期记忆条数；0 表示不向主回复注入长期记忆"
   },
   "memory_prompt_event_limit": {
     "type": "int",
@@ -157,6 +452,52 @@
     "title": "互动记忆情绪阈值",
     "description": "本轮核心情绪数值变化总量达到该阈值时，才会选择性写入互动印象；带有偏好、承诺、边界等内容的消息会绕过该阈值"
   },
+  "memory_quality_min_salience": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 3,
+    "title": "互动记忆最低显著度",
+    "description": "启用记忆质量过滤时，互动印象显著度低于该值则不写入长期记忆"
+  },
+  "memory_quality_min_text_chars": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 80,
+    "default": 6,
+    "title": "互动记忆最短文本长度",
+    "description": "启用记忆质量过滤时，短于该长度且没有个人记忆线索的普通互动不会写入长期记忆"
+  },
+  "memory_cleanup_max_delete": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 5000,
+    "default": 200,
+    "title": "记忆清理单次上限",
+    "description": "执行记忆清理命令时，单次最多删除的低价值互动印象数量"
+  },
+  "enable_memory_write_candidates": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆写入候选暂存",
+    "description": "弱偏好或普通印象先暂存为候选，重复出现后再写入长期记忆，减少错误记忆和召回噪音"
+  },
+  "memory_write_candidate_promote_hits": {
+    "type": "int",
+    "minimum": 2,
+    "maximum": 10,
+    "default": 2,
+    "title": "记忆候选转正次数",
+    "description": "同一弱记忆候选重复出现多少次后允许固化为长期互动印象"
+  },
+  "memory_write_candidate_limit": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 50,
+    "default": 8,
+    "title": "记忆写入候选上限",
+    "description": "每个用户状态中最多保留多少条待确认的弱记忆候选"
+  },
   "enable_memory_update_layer": {
     "type": "bool",
     "default": true,
@@ -185,10 +526,95 @@
     "title": "记忆清理天数",
     "description": "被覆盖且长期未命中的低价值旧印象在达到该时长后会被清理；重大事件、边界和画像默认不会被轻易删除"
   },
+  "builtin_memory_retention_limit": {
+    "type": "int",
+    "minimum": 100,
+    "maximum": 10000,
+    "default": 1200,
+    "title": "内置记忆保留上限",
+    "description": "每个用户在本地 SQLite 记忆库中保留的最大记忆条数，超出后优先清理低显著度、低命中、较旧的印象类记忆"
+  },
+  "builtin_memory_prompt_char_budget": {
+    "type": "int",
+    "minimum": 80,
+    "maximum": 2000,
+    "default": 260,
+    "title": "内置记忆注入字符预算",
+    "description": "主回复系统提示中相关记忆的总字符预算，用于控制长期记忆注入的 token 成本"
+  },
+  "builtin_memory_summary_max_chars": {
+    "type": "int",
+    "minimum": 40,
+    "maximum": 500,
+    "default": 90,
+    "title": "单条内置记忆摘要长度",
+    "description": "写入内置记忆时保存到 prompt 的摘要最大字符数；原始信息会被压缩成短摘要以避免 prompt 膨胀"
+  },
+  "builtin_memory_import_max_content_chars": {
+    "type": "int",
+    "minimum": 120,
+    "maximum": 20000,
+    "default": 1200,
+    "title": "内置记忆导入单条内容上限",
+    "description": "从 data/memory_exports 导入 jsonl 时，单条 content/raw_content 最多保留多少字符；用于避免异常导入文件污染本地记忆库并增加后续 token 成本。"
+  },
+  "builtin_memory_import_max_line_chars": {
+    "type": "int",
+    "minimum": 1000,
+    "maximum": 1000000,
+    "default": 50000,
+    "title": "内置记忆导入单行大小上限",
+    "description": "从 data/memory_exports 导入 jsonl 时，超过该字符数的单行会被跳过；用于防止超大 JSONL 行造成解析阻塞或异常内存占用。"
+  },
+  "enable_builtin_memory_vector": {
+    "type": "bool",
+    "default": false,
+    "title": "启用本地向量记忆",
+    "description": "开启后，本地 SQLite 记忆会额外写入向量索引，并在召回时把关键词/FTS 与向量相似度结果合并；未配置向量模型时自动退回普通本地记忆。"
+  },
+  "marianna_embedding_provider_id": {
+    "type": "string",
+    "default": "",
+    "title": "本地记忆向量模型",
+    "description": "选择 AstrBot 服务提供商中配置的 Embedding/向量模型。留空时不调用向量模型。",
+    "_special": "select_provider"
+  },
+  "builtin_memory_vector_min_similarity": {
+    "type": "float",
+    "minimum": 0,
+    "maximum": 1,
+    "default": 0.35,
+    "title": "向量召回最低相似度",
+    "description": "低于该相似度的本地记忆不会进入向量召回候选，值越高越保守。"
+  },
+  "builtin_memory_vector_weight": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 4,
+    "title": "向量召回排序权重",
+    "description": "向量相似度参与本地记忆分层排序的权重，0 表示只补充候选但不明显加权。"
+  },
+  "builtin_memory_vector_candidate_limit": {
+    "type": "int",
+    "minimum": 16,
+    "maximum": 512,
+    "default": 96,
+    "title": "向量候选扫描上限",
+    "description": "每次向量召回最多扫描的本地记忆向量数量；较高会提升召回但增加本地计算。"
+  },
+  "builtin_memory_vector_max_dimensions": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 32768,
+    "default": 4096,
+    "title": "向量记忆最大维度",
+    "description": "限制本地向量记忆可接受的 embedding 维度，超出后丢弃该向量，避免异常 provider 或坏数据污染召回。"
+  },
   "marianna_temperature": {
     "type": "float",
-    "minimum": 0.5,
-    "maximum": 1.2,
+    "minimum": 0,
+    "maximum": 2,
     "default": 0.85,
     "title": "回复温度",
     "description": "LLM生成温度，越高回复越随机，越低越保守（建议0.7-1.0）"
@@ -211,6 +637,369 @@
     "title": "启用主动事件层",
     "description": "允许玛丽亚在高焦虑、高亲密、强独占、锁定或秘密/承诺场景中低频主动推进一句，但不会覆盖当前话题"
   },
+  "enable_code_state_decision": {
+    "type": "bool",
+    "default": true,
+    "title": "启用代码数值决策",
+    "description": "开启后分析型 LLM 主要识别用户意图、情绪和关系信号，情感数值增量由本地规则统一决策，降低乱打分与 token 成本"
+  },
+  "enable_state_delta_smoothing": {
+    "type": "bool",
+    "default": true,
+    "title": "启用数值变化平滑",
+    "description": "对重复意图、高位数值、锁定推进、焦虑恢复和连续冒犯进行本地平滑，避免刷数值、暴涨或高位无限堆叠"
+  },
+  "state_smooth_repeat_decay_start": {
+    "type": "int",
+    "minimum": 2,
+    "maximum": 20,
+    "default": 3,
+    "title": "重复意图衰减起点",
+    "description": "同类意图连续出现达到该次数后，正向好感、信任、病娇等变化开始衰减"
+  },
+  "state_smooth_high_value_start": {
+    "type": "int",
+    "minimum": 60,
+    "maximum": 99,
+    "default": 85,
+    "title": "高位数值减速起点",
+    "description": "数值达到该值后，正向增长会自动减速"
+  },
+  "state_smooth_near_max_start": {
+    "type": "int",
+    "minimum": 70,
+    "maximum": 100,
+    "default": 95,
+    "title": "接近满值保护起点",
+    "description": "数值达到该值后，非强证据的正向增长会被抑制"
+  },
+  "state_smooth_high_anxiety_start": {
+    "type": "int",
+    "minimum": 40,
+    "maximum": 100,
+    "default": 80,
+    "title": "高焦虑堆叠保护起点",
+    "description": "焦虑达到该值后，普通离开或冷淡暗示不再继续堆叠焦虑"
+  },
+  "enable_memory_evidence_stage_gate": {
+    "type": "bool",
+    "default": true,
+    "title": "启用阶段证据门槛",
+    "description": "关系进入专属试探或锁定链路前，需要当前发言或长期记忆中出现承诺、秘密、边界、唯一性等证据"
+  },
+  "enable_persona_consistency_guard": {
+    "type": "bool",
+    "default": true,
+    "title": "启用人格一致性守卫",
+    "description": "在主回复提示中加入稳定人格边界，避免被用户要求或单轮情绪带偏成人设崩坏、无条件迎合或越级亲密"
+  },
+  "enable_reply_length_strategy": {
+    "type": "bool",
+    "default": true,
+    "title": "启用回复长度策略",
+    "description": "根据用户消息长度、问题类型和本轮意图约束回复长度，短句短回，明确问题优先回答"
+  },
+  "enable_prompt_template_mode": {
+    "type": "bool",
+    "default": true,
+    "title": "启用 Prompt 模板化组装",
+    "description": "使用统一模板函数组装 system prompt 各层，减少提示词拼接分散导致的维护成本"
+  },
+  "enable_behavior_style_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用短期心理行为层",
+    "description": "把数值先转译为短期心情、情绪余温、防备、被触动和行为档位，再影响主回复语气，减少数值驱动的突兀感"
+  },
+  "short_term_emotion_decay": {
+    "type": "float",
+    "minimum": 0,
+    "maximum": 0.95,
+    "default": 0.65,
+    "title": "短期情绪衰减",
+    "description": "短期心理变量每轮保留的比例；越高越有情绪惯性，越低越快回到平静"
+  },
+  "enable_behavior_band_smoothing": {
+    "type": "bool",
+    "default": true,
+    "title": "启用行为档位平滑",
+    "description": "非紧急情况下不让行为档位跨级跳变，保留上一轮语气余温；边界、冒犯、离开等强信号仍会立即切换"
+  },
+  "enable_behavior_continuity_bridge": {
+    "type": "bool",
+    "default": true,
+    "title": "启用行为连续性桥接",
+    "description": "在主回复提示中提供上一轮心情、上一轮行为档位和本轮承接建议，让语气变化更像连续的人"
+  },
+  "enable_behavior_action_budget": {
+    "type": "bool",
+    "default": true,
+    "title": "启用行为动作预算",
+    "description": "按当前行为档位限制动作描写、追问、亲密表达和关系推进密度，避免单轮回复堆叠过多情绪动作"
+  },
+  "enable_reply_variety_guard": {
+    "type": "bool",
+    "default": true,
+    "title": "启用回复变化守卫",
+    "description": "在主回复提示中要求避免连续复用同类动作、停顿、称呼、亲密词和结尾反问，降低模板循环感"
+  },
+  "enable_recent_style_fingerprint": {
+    "type": "bool",
+    "default": true,
+    "title": "启用最近风格指纹",
+    "description": "从最近助手回复中提取少量动作、结尾和高频亲密词，提示主回复避开近邻重复表达"
+  },
+  "recent_style_fingerprint_limit": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 12,
+    "default": 4,
+    "title": "最近风格指纹条数",
+    "description": "提取最近多少条助手回复用于风格反重复；设为 0 可关闭该层的历史读取"
+  },
+  "enable_reply_template_trim": {
+    "type": "bool",
+    "default": true,
+    "title": "启用回复模板修剪",
+    "description": "回复后本地修剪重复括号动作和过多结尾反问，不额外调用 LLM"
+  },
+  "reply_template_trim_max_actions": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 4,
+    "default": 1,
+    "title": "回复动作保留上限",
+    "description": "回复后本地最多保留多少个括号动作描写"
+  },
+  "enable_time_aware_short_term_decay": {
+    "type": "bool",
+    "default": true,
+    "title": "启用短期心理时间衰减",
+    "description": "按距离上次互动的时间衰减情绪余温、防备和被触动值"
+  },
+  "short_term_decay_half_life_hours": {
+    "type": "float",
+    "minimum": 0.25,
+    "maximum": 168,
+    "default": 6,
+    "title": "短期心理半衰期小时",
+    "description": "短期心理变量按时间自然衰减的半衰期，越大保留余温越久"
+  },
+  "enable_relationship_event_log": {
+    "type": "bool",
+    "default": true,
+    "title": "启用关系事件日志",
+    "description": "记录首次认真道歉、秘密、承诺、边界和占有试探等轻量关系转折"
+  },
+  "relationship_event_log_limit": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 12,
+    "title": "关系事件日志上限",
+    "description": "每个用户最多保留多少条轻量关系事件"
+  },
+  "enable_behavior_style_variant": {
+    "type": "bool",
+    "default": true,
+    "title": "启用行为风格微变体",
+    "description": "同一行为档位下轮换反问型、叮嘱型、陪伴型、吃味型等微变体，减少机械感"
+  },
+  "enable_memory_recall_negative_feedback": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆召回负反馈",
+    "description": "如果召回的互动印象没有被用户当前发言接住，则轻微降低其显著度"
+  },
+  "enable_memory_privacy_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆隐私等级",
+    "description": "为内置记忆标记 private_only、group_only、public_profile、sensitive，避免群聊召回私聊秘密或命定细节"
+  },
+  "enable_memory_scene_bridge": {
+    "type": "bool",
+    "default": true,
+    "title": "启用私聊/群聊记忆桥接",
+    "description": "群聊状态独立时，允许从私聊桥接称呼、生日、公开偏好等 public_profile 记忆，但不会桥接秘密、承诺和亲密关系细节"
+  },
+  "enable_memory_evidence_trace": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆召回证据链",
+    "description": "为召回结果记录关键词命中、向量相似、保护层和冷热层等原因，便于诊断调试"
+  },
+  "enable_memory_conflict_resolution": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆冲突覆盖",
+    "description": "当新偏好与旧偏好明显冲突时，自动把旧记忆标记为被新记忆覆盖"
+  },
+  "enable_memory_temperature_layer": {
+    "type": "bool",
+    "default": true,
+    "title": "启用冷热记忆分层",
+    "description": "按最近更新时间、命中次数和显著度把记忆分为 hot/warm/cold，召回时优先热记忆并降低冷记忆权重"
+  },
+  "memory_hot_days": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 30,
+    "default": 3,
+    "title": "热记忆天数",
+    "description": "最近多少天内更新的记忆优先视为热记忆"
+  },
+  "memory_warm_days": {
+    "type": "int",
+    "minimum": 7,
+    "maximum": 365,
+    "default": 45,
+    "title": "温记忆天数",
+    "description": "超过热记忆天数但仍在该范围内的记忆视为温记忆；更久且显著度低的普通印象视为冷记忆"
+  },
+  "memory_recall_cooldown_seconds": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 86400,
+    "default": 300,
+    "title": "记忆重复召回冷却秒数",
+    "description": "同一条内置记忆在短时间内已被召回时，优先让其他相关记忆进入 prompt；0 表示关闭冷却。"
+  },
+  "memory_mode_preset": {
+    "type": "string",
+    "enum": [
+      "lean",
+      "balanced",
+      "rich"
+    ],
+    "default": "balanced",
+    "title": "本地记忆模式预设",
+    "description": "lean 优先降低 prompt token;balanced 保持默认;rich 增强记忆召回和主动事件体感。具体配置项仍可单独覆盖。"
+  },
+  "enable_scene_memory_mode": {
+    "type": "bool",
+    "default": true,
+    "title": "启用私聊/群聊独立记忆模式",
+    "description": "开启后私聊和群聊可分别选择 lean/balanced/rich；默认私聊 rich 高沉浸，群聊 lean 省 token。关闭后继续使用 memory_mode_preset。"
+  },
+  "private_chat_memory_mode_preset": {
+    "type": "string",
+    "enum": [
+      "lean",
+      "balanced",
+      "rich"
+    ],
+    "default": "rich",
+    "title": "私聊记忆模式",
+    "description": "私聊使用的记忆模式；默认 rich，保留更多记忆和主动事件体验。"
+  },
+  "group_chat_memory_mode_preset": {
+    "type": "string",
+    "enum": [
+      "lean",
+      "balanced",
+      "rich"
+    ],
+    "default": "lean",
+    "title": "群聊记忆模式",
+    "description": "群聊使用的记忆模式；默认 lean，减少记忆注入和动态 prompt，优先省 token。"
+  },
+  "private_chat_context_injection": {
+    "type": "bool",
+    "default": true,
+    "title": "私聊启用上下文注入",
+    "description": "私聊场景是否允许插件把本地历史/摘要注入 req.contexts；默认开启以配合高沉浸记忆模式，已有 AstrBot contexts 时仍受重复注入保护。"
+  },
+  "group_chat_context_injection": {
+    "type": "bool",
+    "default": false,
+    "title": "群聊启用上下文注入",
+    "description": "群聊场景是否允许插件把本地历史/摘要注入 req.contexts；默认关闭，避免群聊高频消息造成 token 膨胀。"
+  },
+  "private_chat_inject_summary_as_context": {
+    "type": "bool",
+    "default": true,
+    "title": "私聊注入摘要到上下文",
+    "description": "私聊上下文注入开启时，是否允许注入最近自动摘要；默认开启，增强跨会话沉浸。"
+  },
+  "group_chat_inject_summary_as_context": {
+    "type": "bool",
+    "default": false,
+    "title": "群聊注入摘要到上下文",
+    "description": "群聊上下文注入开启时，是否允许注入最近自动摘要；默认关闭，避免公开场景暴露私密长期信息并节省 token。"
+  },
+  "memory_recall_negative_feedback_max": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 20,
+    "default": 3,
+    "title": "记忆负反馈单次上限",
+    "description": "单轮最多对多少条未被接住的内置互动印象降低显著度"
+  },
+  "behavior_band_sticky_turns": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 2,
+    "title": "行为档位惯性轮数",
+    "description": "普通弱信号下，行为档位至少保留的轮数；用于减少忽冷忽热的突兀感"
+  },
+  "enable_active_event_queue": {
+    "type": "bool",
+    "default": true,
+    "title": "启用主动事件队列",
+    "description": "主动事件不适合立即触发时先进入短队列，后续在冷却结束且当前话题合适时再轻量触发"
+  },
+  "enable_state_explanation_log": {
+    "type": "bool",
+    "default": true,
+    "title": "启用状态解释日志",
+    "description": "记录每轮状态变化的意图、证据等级、实际变化和被拦截字段，并在调试尾注中显示"
+  },
+  "diagnostic_history_limit": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 20,
+    "title": "诊断历史保留条数",
+    "description": "每个用户本地保留的最近状态诊断记录数量"
+  },
+  "enable_memory_evidence_grading": {
+    "type": "bool",
+    "default": true,
+    "title": "启用记忆证据分级",
+    "description": "把阶段迁移证据分为无、弱、中、强；锁定和专属阶段只接受中/强证据"
+  },
+  "enable_reply_self_check": {
+    "type": "bool",
+    "default": true,
+    "title": "启用回复后自检",
+    "description": "回复生成后用本地规则检查内部层名泄露、非命定用户越界亲密和过长输出，不额外调用 LLM"
+  },
+  "reply_self_check_max_chars": {
+    "type": "int",
+    "minimum": 120,
+    "maximum": 3000,
+    "default": 900,
+    "title": "回复自检最大字符数",
+    "description": "启用回复后自检时，超过该字符数的回复会被截断"
+  },
+  "reply_self_check_max_lines": {
+    "type": "int",
+    "minimum": 3,
+    "maximum": 50,
+    "default": 12,
+    "title": "回复自检最大行数",
+    "description": "启用回复后自检时，超过该行数的回复会被截断"
+  },
+  "active_event_queue_max_size": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 10,
+    "default": 3,
+    "title": "主动事件队列上限",
+    "description": "每个用户最多保留的待触发主动事件数量；0 表示关闭队列缓存"
+  },
   "active_event_cooldown_turns": {
     "type": "int",
     "minimum": 1,
@@ -218,6 +1007,36 @@
     "default": 7,
     "title": "主动事件冷却轮数",
     "description": "同一用户两次明显主动事件之间至少间隔的普通互动轮数，数值越大越克制"
+  },
+  "active_event_idle_hours": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 168,
+    "default": 24,
+    "title": "久别主动事件间隔小时",
+    "description": "距离上次互动超过该小时数后，才允许触发久别问候、想起旧事等生活化主动事件。"
+  },
+  "enable_relationship_cooldown": {
+    "type": "bool",
+    "default": true,
+    "title": "启用关系自然降温",
+    "description": "长时间未互动后，在下一次对话开始时轻量结算好感、信任和焦虑变化"
+  },
+  "relationship_cooldown_idle_days": {
+    "type": "int",
+    "minimum": 1,
+    "maximum": 365,
+    "default": 7,
+    "title": "关系降温空闲天数",
+    "description": "距离上次互动达到该天数后触发一次自然降温结算"
+  },
+  "relationship_cooldown_max_delta": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 30,
+    "default": 6,
+    "title": "关系降温最大幅度",
+    "description": "单次自然降温最多应用的步数；0 表示不改变数值"
   },
   "enable_reflection_update_layer": {
     "type": "bool",
@@ -261,8 +1080,8 @@
     "minimum": 0,
     "maximum": 50,
     "default": 3,
-    "title": "分析 Mnemosyne 记忆条数",
-    "description": "状态分析时额外从 Mnemosyne 情感记忆中检索的长期记忆条数，需启用情感记忆且检测到 Mnemosyne；0 表示不用于数值分析"
+    "title": "分析长期记忆条数",
+    "description": "状态分析时额外从内置记忆或兼容记忆中检索的长期记忆条数；0 表示不用于数值分析"
   },
   "analysis_max_chars_per_msg": {
     "type": "int",
@@ -288,6 +1107,28 @@
     "title": "本地历史保留条数",
     "description": "每个用户本地保留的最近对话消息条数，影响分析型LLM可读取的历史上限"
   },
+  "history_max_entry_chars": {
+    "type": "int",
+    "minimum": 200,
+    "maximum": 20000,
+    "default": 4000,
+    "title": "éˆî„€æ¹´å•æ¡é˜å——å½¶æœ€å¤§å­—ç¬¦æ•°",
+    "description": "æœ¬åœ°åŽ†å²å†™å…¥å‰çš„å•æ¡æ¶ˆæ¯é•¿åº¦ä¸Šé™ï¼Œç”¨äºŽé˜²æ­¢è¶…é•¿æ¶ˆæ¯æ²‰æ·€åŽå��å¤�å½±å“�æ‘˜è¦ã€�æ£€ç´¢å’Œ token æ¶ˆè€—"
+  },
+  "history_duplicate_window_seconds": {
+    "type": "int",
+    "minimum": 0,
+    "maximum": 300,
+    "default": 5,
+    "title": "本地历史重复写入保护窗口",
+    "description": "短时间内同角色、同内容的本地历史只写入一次，避免平台重试或重复回调造成历史膨胀和 token 成本增加；设为 0 可关闭。"
+  },
+  "enable_performance_logging": {
+    "type": "bool",
+    "default": true,
+    "title": "启用性能日志",
+    "description": "开启后会在本地 debug 日志中记录关键路径耗时，用于排查记忆召回、prompt 构建和状态处理性能；关闭后仍保留轻量统计样本，但不输出性能日志。"
+  },
   "marianna_debug_mode": {
     "type": "bool",
     "default": false,
@@ -296,9 +1137,9 @@
   },
   "enable_context_injection": {
     "type": "bool",
-    "default": true,
+    "default": false,
     "title": "启用LLM上下文注入",
-    "description": "开启后将把对话历史注入到每次LLM调用中，使玛丽亚能记住本次会话内容"
+    "description": "开启后才允许插件把本地对话历史或最近总结注入 req.contexts。默认关闭，优先交由 AstrBot 自带历史管理，避免重复上下文和 DeepSeek 输入缓存命中下降。"
   },
   "context_history_limit": {
     "type": "int",
@@ -316,9 +1157,9 @@
   },
   "inject_summary_as_context": {
     "type": "bool",
-    "default": true,
-    "title": "注入对话摘要到系统提示",
-    "description": "将最近一次自动/手动总结注入系统提示，作为跨会话长期记忆补充"
+    "default": false,
+    "title": "注入对话摘要到上下文",
+    "description": "是否将最近总结注入 req.contexts；依赖 enable_context_injection=true。默认关闭，避免在主请求中增加动态上下文；如需要跨会话沉浸上下文可手动开启。"
   },
   "context_max_tokens_per_msg": {
     "type": "int",
