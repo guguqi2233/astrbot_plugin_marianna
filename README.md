@@ -2,7 +2,7 @@
 
 Marianna 是一个面向 AstrBot 的人格、关系状态与本地记忆插件。当前版本重点是：降低大模型 token 成本、避免重复上下文注入、区分群聊/私聊记忆策略，并用本地状态机维持人格一致性。
 
-当前版本：`v1.5.3`
+当前版本：`v1.5.4`
 
 ## 核心能力
 
@@ -197,6 +197,12 @@ __pycache__/
 - 诊断面板是否能清楚解释本轮数值变化和记忆注入原因。
 
 ## 版本说明
+
+### v1.5.4
+
+- Reuse the most recent scoped group state when AstrBot provides an unstable group `unified_msg_origin` without a stable group id.
+- Prevent same-user group conversations from splitting values across multiple `group:hash::user` state records.
+- Add regression coverage for unstable group-origin state reuse.
 
 ### v1.5.3
 
