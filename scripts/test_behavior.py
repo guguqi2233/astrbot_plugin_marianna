@@ -1355,6 +1355,22 @@ def test_single_existing_group_state_is_reused_for_new_group_key() -> None:
     assert h._get_scoped_user_id(second_event) == first_user_id
 
 
+def test_private_origin_alias_reuses_state_when_sender_id_changes() -> None:
+    h = Harness()
+    first_event = _FakeEvent("u_private_a", umo="private:stable-dialog")
+    first_user_id = h._get_scoped_user_id(first_event)
+    h.user_states[first_user_id] = _state(
+        **{
+            "\u597d\u611f\u5ea6": 1,
+            "\u4fe1\u4efb\u5ea6": 16,
+            "\u4e92\u52a8\u8ba1\u6570": 1,
+        }
+    )
+    second_event = _FakeEvent("u_private_b", umo="private:stable-dialog")
+
+    assert h._get_scoped_user_id(second_event) == first_user_id
+
+
 def test_command_scope_falls_back_to_recent_group_state() -> None:
     h = Harness()
     group_state = _state(互动计数=3, 最后互动时间=datetime.now().isoformat())
@@ -4300,6 +4316,7 @@ def main() -> None:
         test_state_scope_mode,
         test_unstable_group_origin_reuses_recent_scoped_state,
         test_single_existing_group_state_is_reused_for_new_group_key,
+        test_private_origin_alias_reuses_state_when_sender_id_changes,
         test_command_scope_falls_back_to_recent_group_state,
         test_debug_mode_propagates_across_user_scene_states,
         test_group_state_inherits_raw_debug_mode_on_first_turn,

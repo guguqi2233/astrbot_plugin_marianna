@@ -1552,6 +1552,50 @@ class MariannaRuntimeMixin:
             return f"scene:{scene_hash}"
         return "private"
 
+    def _get_private_state_alias_key(self, event: Optional[AstrMessageEvent]) -> str:
+        if event is None or self._is_group_event(event):
+            return ""
+        parts: List[str] = []
+        umo = str(getattr(event, "unified_msg_origin", "") or "").strip()
+        if umo:
+            parts.append(f"umo:{umo}")
+        for source in (
+            event,
+            getattr(event, "message_obj", None),
+            getattr(event, "message", None),
+            getattr(event, "raw_message", None),
+        ):
+            if source is None:
+                continue
+            for attr in ("session_id", "conversation_id", "chat_id", "peer_id", "dialog_id"):
+                value = getattr(source, attr, None)
+                if callable(value):
+                    try:
+                        value = value()
+                    except Exception:
+                        value = None
+                if value:
+                    parts.append(f"{attr}:{value}")
+        if not parts:
+            return ""
+        digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:MESSAGE_CACHE_KEY_HASH_CHARS]
+        return f"private:{digest}"
+
+    def _resolve_private_state_alias(
+        self,
+        event: Optional[AstrMessageEvent],
+        raw_user_id: str,
+    ) -> str:
+        alias_key = self._get_private_state_alias_key(event)
+        if not alias_key:
+            return raw_user_id
+        aliases = self._get_runtime_dict_cache("_state_scope_aliases")
+        mapped_user_id = aliases.get(alias_key)
+        if isinstance(mapped_user_id, str) and mapped_user_id:
+            return mapped_user_id
+        aliases[alias_key] = raw_user_id
+        return raw_user_id
+
     def _select_recent_scoped_state_id(
         self,
         raw_user_id: str,
@@ -1610,6 +1654,8 @@ class MariannaRuntimeMixin:
                 scoped_user_id,
                 allow_ambiguous=not bool(self._get_event_group_id(event)),
             )
+        if mode == "private_global_group_scene":
+            return self._resolve_private_state_alias(event, raw_user_id)
         return raw_user_id
 
     def _get_command_scoped_user_id(

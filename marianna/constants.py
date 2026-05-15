@@ -1,7 +1,7 @@
 import re
 
-PLUGIN_VERSION = "1.5.5"
-PLUGIN_RELEASE_NAME = "Scoped State Merge Hotfix"
+PLUGIN_VERSION = "1.5.6"
+PLUGIN_RELEASE_NAME = "Private Scope Alias Hotfix"
 
 # Mnemosyne 长期记忆插件将通过动态方式调用
 MNEMOSYNE_MAX_SHARED_MEMORIES = 200
