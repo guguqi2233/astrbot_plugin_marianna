@@ -345,7 +345,12 @@ class MariannaPersonality(
             response.completion_text = reply
 
             #  2. 调试模式追加数?
-            debug_mode = bool(state.get("调试模式", pending_debug.get("debug_mode", self.default_debug_mode) if isinstance(pending_debug, dict) else self.default_debug_mode))
+            debug_key = "\u8c03\u8bd5\u6a21\u5f0f"
+            pending_debug_mode = bool(pending_debug.get("debug_mode", False)) if isinstance(pending_debug, dict) else False
+            debug_mode = bool(state.get(debug_key, self.default_debug_mode)) or pending_debug_mode
+            if debug_mode and not bool(state.get(debug_key, self.default_debug_mode)):
+                state[debug_key] = True
+                self._set_debug_mode_for_related_states(event, user_id, True)
             if debug_mode:
                 response.completion_text = reply + self._build_debug_footer(
                     state,

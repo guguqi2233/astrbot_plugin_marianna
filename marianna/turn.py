@@ -27,6 +27,8 @@ class MariannaTurnMixin:
         state["???????ID"] = user_id
         state["?????????"] = str(user_id).startswith("group:")
         state["_本轮前最后互动时间"] = state.get("最后互动时间")
+        if self._inherit_debug_mode_from_related_state(user_id, state):
+            self._schedule_state_save(user_id, state)
         if await self._reconcile_destined_one_state(user_id, state):
             self._schedule_state_save(user_id, state)
         cooldown_changes = self._apply_relationship_cooldown_if_needed(state, user_id=user_id)

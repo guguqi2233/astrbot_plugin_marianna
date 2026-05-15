@@ -1350,6 +1350,15 @@ def test_debug_mode_propagates_across_user_scene_states() -> None:
     assert h.user_states["group:g1::u2"]["\u8c03\u8bd5\u6a21\u5f0f"] is False
 
 
+def test_group_state_inherits_raw_debug_mode_on_first_turn() -> None:
+    h = Harness()
+    h.user_states["u1"] = _state(**{"\u8c03\u8bd5\u6a21\u5f0f": True})
+    group_state, _old_name, _old_lock = asyncio.run(h._prepare_turn_state("group:g1::u1", "tester"))
+
+    assert group_state["\u8c03\u8bd5\u6a21\u5f0f"] is True
+    assert h.user_states["group:g1::u1"]["\u8c03\u8bd5\u6a21\u5f0f"] is True
+
+
 def test_memory_privacy_bridge_and_temperature() -> None:
     h = Harness()
     group_user = "group:g1::u1"
@@ -4257,6 +4266,7 @@ def main() -> None:
         test_state_scope_mode,
         test_command_scope_falls_back_to_recent_group_state,
         test_debug_mode_propagates_across_user_scene_states,
+        test_group_state_inherits_raw_debug_mode_on_first_turn,
         test_memory_privacy_bridge_and_temperature,
         test_memory_conflict_slot_and_cooldown,
         test_prompt_token_estimate_and_group_self_check,

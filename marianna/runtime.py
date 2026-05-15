@@ -1606,11 +1606,12 @@ class MariannaRuntimeMixin:
         event: Optional[AstrMessageEvent] = None,
         user_id: Optional[str] = None,
     ) -> List[str]:
-        raw_user_id = str(user_id or (event.get_sender_id() if event else "unknown") or "unknown")
+        candidate_user_id = str(user_id or (event.get_sender_id() if event else "unknown") or "unknown")
+        raw_user_id = candidate_user_id.rsplit("::", 1)[-1] if "::" in candidate_user_id else candidate_user_id
         primary = self._get_command_scoped_user_id(event, raw_user_id)
         suffix = f"::{raw_user_id}"
         related: List[str] = []
-        for candidate in (primary, raw_user_id):
+        for candidate in (candidate_user_id, primary, raw_user_id):
             if candidate and candidate not in related:
                 related.append(candidate)
         for key in self._get_user_states_store().keys():
@@ -1631,6 +1632,22 @@ class MariannaRuntimeMixin:
             self._schedule_state_save(state_user_id, state)
             updated.append(state_user_id)
         return updated
+
+    def _inherit_debug_mode_from_related_state(self, user_id: str, state: Dict[str, Any]) -> bool:
+        if not isinstance(user_id, str) or "::" not in user_id:
+            return False
+        raw_user_id = user_id.rsplit("::", 1)[-1]
+        if not raw_user_id or raw_user_id == user_id:
+            return False
+        debug_key = "\u8c03\u8bd5\u6a21\u5f0f"
+        raw_state = self._get_user_states_store().get(raw_user_id)
+        if not isinstance(raw_state, dict):
+            return False
+        inherited = bool(raw_state.get(debug_key, self.default_debug_mode))
+        if bool(state.get(debug_key, self.default_debug_mode)) == inherited:
+            return False
+        state[debug_key] = inherited
+        return True
 
     def _get_session_key(
         self,
@@ -2233,4 +2250,3 @@ class MariannaRuntimeMixin:
         kwargs = getattr(req, "kwargs", None)
         if isinstance(kwargs, dict):
             kwargs["temperature"] = effective_temperature
-
