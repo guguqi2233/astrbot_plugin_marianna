@@ -827,6 +827,7 @@ class MariannaAnalysisMixin:
             "根据最新用户发言与必要上下文判断本轮用户意图、情绪、关系信号与回应目标；以语义理解为准，不做机械关键词匹配。"
             "若系统启用代码决策，数值字段只作为低优先级建议，最终增量由代码规则决定。"
             "本轮变化只由最新发言触发，相关记忆只用于理解指代、连续性和分量，不得把无关旧事再次计为本轮变化。"
+            "\u5bf9\u521d\u671f\u793c\u8c8c\u81ea\u6211\u4ecb\u7ecd\u3001\u6e29\u548c\u6c42\u52a9\u3001\u8ba4\u771f\u63a5\u8bdd\u3001\u5c0a\u91cd\u5efa\u8bae\u3001\u514b\u5236\u5938\u8d5e\u7b49\u7ec6\u5fae\u6b63\u5411\u4fe1\u53f7\uff0c\u5e94\u5141\u8bb8\u597d\u611f\u5ea6\u6216\u4fe1\u4efb\u5ea6\u5c0f\u5e45 +1\uff1b\u4f46\u75c5\u5a07\u503c\u4e0e\u9501\u5b9a\u8fdb\u5ea6\u4ecd\u9700\u5f3a\u5173\u7cfb\u8bc1\u636e\u3002"
             "大多数变化应克制，信息不足填 0，避免六个字段同时波动。"
             "返回字段必须包含：好感度、病娇值、锁定进度、信任度、焦虑值、优雅值、用户意图、用户情绪、关系信号、回应目标。"
             "数值字段使用整数增量；文本字段用简短中文短语。"
@@ -1209,6 +1210,92 @@ class MariannaAnalysisMixin:
         }
         return adjusted
 
+    def _apply_subtle_relationship_signal_deltas(
+        self,
+        state: Dict[str, Any],
+        user_msg: str,
+        turn_analysis: Dict[str, str],
+        deltas: Dict[str, int],
+    ) -> Dict[str, int]:
+        """Capture small social movements so polite long talks do not stay numerically frozen."""
+        adjusted = {
+            field: self._coerce_analysis_int(value, default=0)
+            for field, value in dict(deltas).items()
+        }
+        normalized = self._normalize_analysis_content(user_msg)
+        if not normalized or normalized.startswith("/"):
+            return adjusted
+
+        favor_key = "\u597d\u611f\u5ea6"
+        trust_key = "\u4fe1\u4efb\u5ea6"
+        elegance_key = "\u4f18\u96c5\u503c"
+        anxiety_key = "\u7126\u8651\u503c"
+        yan_key = "\u75c5\u5a07\u503c"
+        lock_key = "\u9501\u5b9a\u8fdb\u5ea6"
+        intent_key = "\u7528\u6237\u610f\u56fe"
+        signal_key = "\u5173\u7cfb\u4fe1\u53f7"
+        subtle_key = "_\u7ec6\u5fae\u5173\u7cfb\u4fe1\u53f7"
+
+        intent = str(turn_analysis.get(intent_key, "") or "")
+        signal = str(turn_analysis.get(signal_key, "") or "")
+        favor = self._coerce_analysis_int(state.get(favor_key, 0), default=0, minimum=0, maximum=100)
+        trust = self._coerce_analysis_int(state.get(trust_key, 0), default=0, minimum=0, maximum=100)
+        subtle_reasons: List[str] = []
+
+        positive_fields = (favor_key, trust_key, elegance_key)
+        if any(self._coerce_analysis_int(adjusted.get(field, 0), default=0) > 0 for field in positive_fields):
+            state[subtle_key] = {"\u539f\u56e0": subtle_reasons, "\u5df2\u6709\u660e\u786e\u589e\u91cf": True}
+            return adjusted
+        if any(self._coerce_analysis_int(adjusted.get(field, 0), default=0) < 0 for field in (favor_key, trust_key, elegance_key, anxiety_key)):
+            state[subtle_key] = {"\u539f\u56e0": subtle_reasons, "\u8d1f\u9762\u4f18\u5148": True}
+            return adjusted
+
+        self_intro = bool(re.search(r"\u6211\u662f|\u6211\u53eb|\u53ef\u4ee5\u53eb\u6211|\u6765\u81ea|\u65c5\u8005|\u65c5\u4eba|\u65c5\u884c\u8005|\u81ea\u6211\u4ecb\u7ecd", normalized))
+        polite_acquaintance = bool(re.search(r"\u8ba4\u8bc6\u4f60|\u8ba4\u8bc6\u59b3|\u5f88\u9ad8\u5174|\u5f88\u8363\u5e78|\u7f8e\u4e3d\u7684\u5c0f\u59d0|\u739b\u4e3d\u4e9a\u5c0f\u59d0", normalized))
+        curiosity_about_her = bool(
+            re.search(
+                r"\u4f60\u73b0\u5728\u5728\u505a\u4ec0\u4e48|\u5728\u505a\u4ec0\u4e48|\u4f60\u5728\u770b\u4ec0\u4e48|\u770b\u7684.*\u662f\u4ec0\u4e48|\u80fd\u5426\u544a\u8bc9\u6211|\u6211\u6709\u70b9\u597d\u5947|"
+                r"\u60f3\u4e86\u89e3\u4f60|\u8ba4\u8bc6\u4f60\u4e00\u756a|\u4f60\u559c\u6b22|\u4f60\u89c9\u5f97|\u4f60\u4f1a\u4e0d\u4f1a",
+                normalized,
+            )
+        )
+        vulnerable_request = bool(re.search(r"\u4eba\u751f\u5730\u4e0d\u719f|\u8ff7\u8def|\u8fd9\u91cc\u662f\u54ea\u91cc|\u8fd9\u662f\u54ea\u91cc|\u6211\u60f3\u95ee\u95ee|\u80fd\u5e2e\u6211|\u53ef\u4ee5\u5e2e\u6211", normalized))
+        respectful_suggestion = bool(
+            re.search(
+                r"\u6216\u8bb8\u4f60\u53ef\u4ee5|\u4f60\u53ef\u4ee5\u8bd5\u8bd5|\u4e0d\u59a8|\u4e5f\u8bb8|\u4f1a\u4e0d\u4e00\u6837|\u4eb2\u8eab\u7ecf\u5386|\u51fa\u53bb\u770b\u770b|\u53bb\u770b\u770b|"
+                r"\u611f\u89c9\u4f1a|\u503c\u5f97\u4e00\u770b",
+                normalized,
+            )
+        )
+        serious_listening = bool(re.search(r"\u662f\u7684|\u786e\u5b9e|\u4f60\u8bf4\u5f97|\u6211\u7406\u89e3|\u6211\u660e\u767d|\u539f\u6765\u5982\u6b64|\u7684\u786e", normalized))
+        question_or_request = intent == "\u63d0\u95ee\u6216\u8bf7\u6c42" or "\u6682\u65e0\u660e\u663e\u5173\u7cfb\u63a8\u8fdb" in signal
+
+        if self_intro:
+            adjusted[trust_key] = max(adjusted.get(trust_key, 0), 1)
+            subtle_reasons.append("\u7528\u6237\u4e3b\u52a8\u81ea\u6211\u4ecb\u7ecd")
+        if polite_acquaintance:
+            adjusted[favor_key] = max(adjusted.get(favor_key, 0), 1)
+            subtle_reasons.append("\u793c\u8c8c\u5efa\u7acb\u76f8\u8bc6")
+        if curiosity_about_her and favor < 60:
+            adjusted[favor_key] = max(adjusted.get(favor_key, 0), 1)
+            subtle_reasons.append("\u5bf9\u5979\u672c\u4eba\u4fdd\u6301\u597d\u5947")
+        if vulnerable_request and trust < 50:
+            adjusted[trust_key] = max(adjusted.get(trust_key, 0), 1)
+            subtle_reasons.append("\u6e29\u548c\u6c42\u52a9\u5e26\u6765\u88ab\u4fe1\u4efb\u611f")
+        if respectful_suggestion:
+            adjusted[trust_key] = max(adjusted.get(trust_key, 0), 1)
+            if favor < 50:
+                adjusted[favor_key] = max(adjusted.get(favor_key, 0), 1)
+            subtle_reasons.append("\u5c0a\u91cd\u5730\u63a8\u8fdb\u8bdd\u9898")
+        if serious_listening and question_or_request and trust < 45:
+            adjusted[trust_key] = max(adjusted.get(trust_key, 0), 1)
+            subtle_reasons.append("\u8ba4\u771f\u63a5\u4f4f\u5979\u7684\u8bdd")
+
+        if subtle_reasons and not any(self._coerce_analysis_int(adjusted.get(field, 0), default=0) for field in positive_fields):
+            adjusted[trust_key] = 1
+        state[subtle_key] = {"\u539f\u56e0": subtle_reasons, "\u5e94\u7528": bool(subtle_reasons)}
+        return adjusted
+
     def _update_repeated_intent_counter(
         self,
         state: Dict[str, Any],
@@ -1331,6 +1418,7 @@ class MariannaAnalysisMixin:
             "重复意图次数": repeat_count,
             "证据等级": evidence_level,
             "重复衰减阈值": repeat_decay_start,
+            "\u7ec6\u5fae\u5173\u7cfb\u4fe1\u53f7": self._coerce_runtime_dict_value(state.get("_\u7ec6\u5fae\u5173\u7cfb\u4fe1\u53f7", {})),
         }
         return smoothed
 
@@ -1444,6 +1532,12 @@ class MariannaAnalysisMixin:
             if favor < 75:
                 deltas["病娇值"] = min(deltas["病娇值"], 1)
 
+        deltas = self._apply_subtle_relationship_signal_deltas(
+            state,
+            user_msg,
+            turn_analysis,
+            deltas,
+        )
         deltas = self._apply_contextual_state_delta_rules(
             state,
             user_msg,

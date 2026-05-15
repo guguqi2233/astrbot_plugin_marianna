@@ -2,7 +2,7 @@
 
 Marianna 是一个面向 AstrBot 的人格、关系状态与本地记忆插件。当前版本重点是：降低大模型 token 成本、避免重复上下文注入、区分群聊/私聊记忆策略，并用本地状态机维持人格一致性。
 
-当前版本：`v1.5.1`
+当前版本：`v1.5.2`
 
 ## 核心能力
 
@@ -197,6 +197,13 @@ __pycache__/
 - 诊断面板是否能清楚解释本轮数值变化和记忆注入原因。
 
 ## 版本说明
+
+### v1.5.2
+
+- Add `/Marianna model probe` command alias `/??? ????` for zero-token provider checks of chat, analysis, and embedding models.
+- Add subtle opening-signal deltas so self-introductions, polite help requests, serious listening, and restrained praise can move favor/trust by small amounts when the analysis LLM returns no explicit delta.
+- Fix debug mode persistence across private/group scene keys for the same user.
+- Add regression coverage for frozen opening values and debug-state propagation.
 
 ### v1.5.1
 

@@ -342,6 +342,43 @@ def test_topic_resonance_gives_small_trust_delta() -> None:
     assert deltas["锁定进度"] == 0
 
 
+def test_subtle_social_signals_prevent_frozen_opening_values() -> None:
+    h = Harness()
+    state = _state(**{"\u597d\u611f\u5ea6": 0, "\u4fe1\u4efb\u5ea6": 15})
+
+    intro = h._decide_state_deltas_from_intent(
+        state,
+        "\u5fd8\u8bb0\u81ea\u6211\u4ecb\u7ecd\u4e86\uff0c\u6211\u662f\u5495\u5495\u675e\uff0c\u4e00\u4f4d\u6765\u81ea\u4e1c\u65b9\u7684\u65c5\u8005",
+        {"\u7528\u6237\u610f\u56fe": "\u666e\u901a\u56de\u5e94", "\u5173\u7cfb\u4fe1\u53f7": "\u65e0\u660e\u663e\u5173\u7cfb\u63a8\u8fdb"},
+        user_id="u_subtle",
+        memory_evidence={"level": "\u65e0", "reasons": []},
+    )
+    assert intro["\u4fe1\u4efb\u5ea6"] == 1
+    assert intro["\u75c5\u5a07\u503c"] == 0
+    assert intro["\u9501\u5b9a\u8fdb\u5ea6"] == 0
+
+    curious = h._decide_state_deltas_from_intent(
+        _state(**{"\u597d\u611f\u5ea6": 0, "\u4fe1\u4efb\u5ea6": 15}),
+        "\u6211\u6709\u70b9\u597d\u5947\u4f60\u73b0\u5728\u5728\u505a\u4ec0\u4e48\u5462\uff1f",
+        {"\u7528\u6237\u610f\u56fe": "\u63d0\u95ee\u6216\u8bf7\u6c42", "\u5173\u7cfb\u4fe1\u53f7": "\u6682\u65e0\u660e\u663e\u5173\u7cfb\u63a8\u8fdb"},
+        user_id="u_subtle",
+        memory_evidence={"level": "\u65e0", "reasons": []},
+    )
+    assert curious["\u597d\u611f\u5ea6"] == 1
+    assert curious["\u75c5\u5a07\u503c"] == 0
+    assert curious["\u9501\u5b9a\u8fdb\u5ea6"] == 0
+
+    help_request = h._decide_state_deltas_from_intent(
+        _state(**{"\u597d\u611f\u5ea6": 0, "\u4fe1\u4efb\u5ea6": 15}),
+        "\u4eba\u751f\u5730\u4e0d\u719f\u7684\uff0c\u6211\u60f3\u95ee\u95ee\u8fd9\u91cc\u662f\u54ea\u91cc",
+        {"\u7528\u6237\u610f\u56fe": "\u63d0\u95ee\u6216\u8bf7\u6c42", "\u5173\u7cfb\u4fe1\u53f7": "\u6682\u65e0\u660e\u663e\u5173\u7cfb\u63a8\u8fdb"},
+        user_id="u_subtle",
+        memory_evidence={"level": "\u65e0", "reasons": []},
+    )
+    assert help_request["\u4fe1\u4efb\u5ea6"] == 1
+    assert help_request["\u75c5\u5a07\u503c"] == 0
+    assert help_request["\u9501\u5b9a\u8fdb\u5ea6"] == 0
+
 def test_recent_memory_command_helpers() -> None:
     h = Harness()
     h.enable_builtin_memory = True
@@ -1293,6 +1330,24 @@ def test_command_scope_falls_back_to_recent_group_state() -> None:
     command_event_without_group_origin = _FakeEvent("u1")
 
     assert h._get_command_scoped_user_id(command_event_without_group_origin) == "group:g1::u1"
+
+
+def test_debug_mode_propagates_across_user_scene_states() -> None:
+    h = Harness()
+    h.user_states["u1"] = _state(**{"\u8c03\u8bd5\u6a21\u5f0f": False})
+    h.user_states["group:g1::u1"] = _state(**{"\u8c03\u8bd5\u6a21\u5f0f": False})
+    h.user_states["group:g2::u1"] = _state(**{"\u8c03\u8bd5\u6a21\u5f0f": False})
+    h.user_states["group:g1::u2"] = _state(**{"\u8c03\u8bd5\u6a21\u5f0f": False})
+
+    updated = h._set_debug_mode_for_related_states(_FakeEvent("u1"), "u1", True)
+
+    assert "u1" in updated
+    assert "group:g1::u1" in updated
+    assert "group:g2::u1" in updated
+    assert h.user_states["u1"]["\u8c03\u8bd5\u6a21\u5f0f"] is True
+    assert h.user_states["group:g1::u1"]["\u8c03\u8bd5\u6a21\u5f0f"] is True
+    assert h.user_states["group:g2::u1"]["\u8c03\u8bd5\u6a21\u5f0f"] is True
+    assert h.user_states["group:g1::u2"]["\u8c03\u8bd5\u6a21\u5f0f"] is False
 
 
 def test_memory_privacy_bridge_and_temperature() -> None:
@@ -2931,13 +2986,62 @@ def test_release_and_config_audit_report() -> None:
     h._apply_config()
     release = h._build_release_report()
     audit = h._build_config_audit_report()
-    assert "Marianna 1.5.1" in release
+    assert f"Marianna {PLUGIN_VERSION}" in release
     assert "context injection" in release
     assert "0 risk" in audit
     assert "[OK] context_injection" in audit
     assert "[OK] scene_memory_mode" in audit
     assert "[INFO] private_context_injection" in audit
     assert "[OK] group_context_injection" in audit
+
+
+def test_model_probe_report_detects_provider_ids() -> None:
+    class DummyMeta:
+        def __init__(self, provider_id: str, name: str, provider_type: str = "llm") -> None:
+            self.id = provider_id
+            self.name = name
+            self.type = provider_type
+
+    class DummyProvider:
+        def __init__(self, provider_id: str, name: str, provider_type: str = "llm") -> None:
+            self._meta = DummyMeta(provider_id, name, provider_type)
+
+        def meta(self):
+            return self._meta
+
+    class DummyContext:
+        def __init__(self) -> None:
+            self.providers = {
+                "chat-main": DummyProvider("chat-main", "Chat Main"),
+                "analysis-lite": DummyProvider("analysis-lite", "Analysis Lite"),
+                "embed-main": DummyProvider("embed-main", "Embedding Main", "embedding"),
+            }
+
+        def get_using_provider(self):
+            return self.providers["chat-main"]
+
+        async def get_current_chat_provider_id(self, umo=None):
+            return "chat-main"
+
+        def get_provider_by_id(self, provider_id: str):
+            return self.providers.get(provider_id)
+
+    h = Harness()
+    h.context = DummyContext()
+    h.config = {
+        "marianna_analysis_provider_id": "analysis-lite",
+        "enable_builtin_memory_vector": True,
+        "marianna_embedding_provider_id": "embed-main",
+    }
+    h._apply_config()
+
+    report = asyncio.run(h._build_model_probe_report(object()))
+
+    assert "Marianna model probe" in report
+    assert "对话模型: [OK] chat-main" in report
+    assert "分析模型: [OK] analysis-lite" in report
+    assert "嵌入模型: [OK] embed-main" in report
+    assert "不调用 LLM/embedding" in report
 
 
 def test_runtime_bad_numeric_state_is_tolerated() -> None:
@@ -4116,6 +4220,7 @@ def main() -> None:
         test_memory_write_candidate_refresh_before_limit_trim,
         test_memory_write_candidate_tolerates_bad_counts,
         test_topic_resonance_gives_small_trust_delta,
+        test_subtle_social_signals_prevent_frozen_opening_values,
         test_recent_memory_command_helpers,
         test_short_term_behavior_state,
         test_behavior_band_smoothing,
@@ -4151,6 +4256,7 @@ def main() -> None:
         test_contextual_state_delta_rules,
         test_state_scope_mode,
         test_command_scope_falls_back_to_recent_group_state,
+        test_debug_mode_propagates_across_user_scene_states,
         test_memory_privacy_bridge_and_temperature,
         test_memory_conflict_slot_and_cooldown,
         test_prompt_token_estimate_and_group_self_check,
@@ -4195,6 +4301,7 @@ def main() -> None:
         test_config_source_and_provider_ids_self_heal,
         test_boolean_config_strings_are_safely_coerced,
         test_release_and_config_audit_report,
+        test_model_probe_report_detects_provider_ids,
         test_runtime_bad_numeric_state_is_tolerated,
         test_scene_memory_mode_policy_defaults,
         test_scene_memory_recall_cooldown_is_cache_scoped,

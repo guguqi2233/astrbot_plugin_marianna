@@ -397,12 +397,14 @@ class MariannaPersonality(
         user_id = self._get_command_scoped_user_id(event)
         state = self._get_state(user_id, count_interaction=False)
         await self._reconcile_destined_one_state(user_id, state)
-        state["调试模式"] = not state.get("调试模式", self.default_debug_mode)
-        self._schedule_state_save(user_id, state)
-        status = "开启" if state["调试模式"] else "关闭"
+        debug_key = "\u8c03\u8bd5\u6a21\u5f0f"
+        enabled = not bool(state.get(debug_key, self.default_debug_mode))
+        self._set_debug_mode_for_related_states(event, user_id, enabled)
+        status = "\u5f00\u542f" if enabled else "\u5173\u95ed"
+        display_action = "\u663e\u793a" if enabled else "\u4e0d\u518d\u663e\u793a"
         yield event.plain_result(
-            f"🔍 玛丽亚调试模式已{status}。\n"
-            f"> *之后的普通对话回复将{'显示' if state['调试模式'] else '不再显示'}当前数值与本轮变化。*"
+            f"\U0001f50d \u739b\u4e3d\u4e9a\u8c03\u8bd5\u6a21\u5f0f\u5df2{status}\u3002\n"
+            f"> *\u4e4b\u540e\u7684\u666e\u901a\u5bf9\u8bdd\u56de\u590d\u5c06{display_action}\u5f53\u524d\u6570\u503c\u4e0e\u672c\u8f6e\u53d8\u5316\u3002*"
         )
 
     @marianna_group.command("状态")  # type: ignore
@@ -439,6 +441,11 @@ class MariannaPersonality(
     async def cmd_marianna_config_audit(self, event: AstrMessageEvent):
         """Show token/cache/memory related config audit."""
         yield event.plain_result(self._build_config_audit_report())
+
+    @marianna_group.command("\u6a21\u578b\u68c0\u6d4b")  # type: ignore
+    async def cmd_marianna_model_probe(self, event: AstrMessageEvent):
+        """Detect chat/analysis/embedding provider ids without spending tokens."""
+        yield event.plain_result(await self._build_model_probe_report(event))
 
     @marianna_group.command("记忆统计")  # type: ignore
     async def cmd_marianna_memory_stats(self, event: AstrMessageEvent):

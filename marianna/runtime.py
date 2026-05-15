@@ -1236,6 +1236,131 @@ class MariannaRuntimeMixin:
             return self.analysis_provider_id
         return await self._get_current_chat_provider_id(event)
 
+    def _get_provider_identity(self, provider: Any) -> Dict[str, str]:
+        """Best-effort provider metadata extraction without calling the model."""
+        if provider is None:
+            return {}
+        meta = None
+        try:
+            meta = provider.meta() if hasattr(provider, "meta") else None
+        except Exception:
+            meta = None
+        result: Dict[str, str] = {}
+        for key in ("id", "name", "type"):
+            value = getattr(meta, key, None) if meta is not None else None
+            if value is None:
+                value = getattr(provider, key, None)
+            if value:
+                result[key] = str(value)
+        return result
+
+    def _iter_provider_containers(self) -> List[Any]:
+        containers: List[Any] = []
+        context = getattr(self, "context", None)
+        for obj in (
+            context,
+            getattr(context, "provider_manager", None),
+            getattr(context, "provider_mgr", None),
+            getattr(context, "provider_registry", None),
+            getattr(context, "providers", None),
+        ):
+            if obj is not None and all(obj is not existing for existing in containers):
+                containers.append(obj)
+        return containers
+
+    async def _maybe_await_runtime_value(self, value: Any) -> Any:
+        if hasattr(value, "__await__"):
+            return await value
+        return value
+
+    async def _find_provider_by_id(self, provider_id: str) -> Optional[Dict[str, str]]:
+        provider_id = str(provider_id or "").strip()
+        if not provider_id:
+            return None
+        for container in self._iter_provider_containers():
+            if isinstance(container, dict):
+                provider = container.get(provider_id)
+                identity = self._get_provider_identity(provider)
+                if identity:
+                    return identity
+                continue
+
+            for method_name in (
+                "get_provider_by_id",
+                "get_provider",
+                "get_provider_inst",
+                "get_provider_instance",
+            ):
+                method = getattr(container, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    provider = await self._maybe_await_runtime_value(method(provider_id))
+                except Exception:
+                    continue
+                identity = self._get_provider_identity(provider)
+                if identity:
+                    return identity
+
+            for method_name in (
+                "get_all_providers",
+                "get_providers",
+                "get_provider_list",
+                "provider_list",
+            ):
+                method = getattr(container, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    providers = await self._maybe_await_runtime_value(method())
+                except Exception:
+                    continue
+                if isinstance(providers, dict):
+                    providers = providers.values()
+                if not isinstance(providers, (list, tuple, set)):
+                    continue
+                for provider in providers:
+                    identity = self._get_provider_identity(provider)
+                    if identity.get("id") == provider_id:
+                        return identity
+        return None
+
+    async def _build_model_probe_report(self, event: Optional[AstrMessageEvent] = None) -> str:
+        """Build a zero-token model availability report."""
+        chat_id = await self._get_current_chat_provider_id(event)
+        default_chat_id = self._get_default_chat_provider_id()
+        analysis_config = str(getattr(self, "analysis_provider_id", "") or "").strip()
+        analysis_id = await self._get_analysis_provider_id(event)
+        embedding_id = str(getattr(self, "embedding_provider_id", "") or "").strip()
+        vector_enabled = bool(getattr(self, "enable_builtin_memory_vector", False))
+
+        async def line(label: str, provider_id: Optional[str], source: str) -> str:
+            provider_id = str(provider_id or "").strip()
+            if not provider_id:
+                return f"- {label}: [MISS] 未找到 provider id（{source}）"
+            identity = await self._find_provider_by_id(provider_id)
+            if identity:
+                name = identity.get("name") or "未命名"
+                ptype = identity.get("type") or "unknown"
+                return f"- {label}: [OK] {provider_id}（{source}; registry={name}/{ptype}）"
+            return f"- {label}: [CONFIG] {provider_id}（{source}; 未做模型调用，registry 未确认）"
+
+        lines = ["Marianna model probe", "Mode: zero-token provider/config check"]
+        lines.append(await line("对话模型", chat_id, "当前会话" if chat_id else "AstrBot 当前会话"))
+        if default_chat_id and default_chat_id != chat_id:
+            lines.append(f"- 默认模型: [INFO] {default_chat_id}")
+        analysis_source = "插件配置" if analysis_config else "跟随当前会话模型"
+        lines.append(await line("分析模型", analysis_id, analysis_source))
+        if not analysis_config:
+            lines.append("  提示：marianna_analysis_provider_id 为空，状态分析会使用当前对话模型。")
+        if vector_enabled:
+            lines.append(await line("嵌入模型", embedding_id, "marianna_embedding_provider_id"))
+        else:
+            state = embedding_id or "未配置"
+            lines.append(f"- 嵌入模型: [OFF] 向量记忆未启用（provider={state}）")
+        lines.append("Note: 该指令不调用 LLM/embedding，因此不消耗模型 token；[CONFIG] 表示已配置但未实测。")
+        return "\n".join(lines)
+
     async def _call_analysis_llm(
         self,
         *,
@@ -1475,6 +1600,37 @@ class MariannaRuntimeMixin:
             candidates.sort(reverse=True)
             return candidates[0][1]
         return scoped_user_id
+
+    def _get_related_user_state_ids(
+        self,
+        event: Optional[AstrMessageEvent] = None,
+        user_id: Optional[str] = None,
+    ) -> List[str]:
+        raw_user_id = str(user_id or (event.get_sender_id() if event else "unknown") or "unknown")
+        primary = self._get_command_scoped_user_id(event, raw_user_id)
+        suffix = f"::{raw_user_id}"
+        related: List[str] = []
+        for candidate in (primary, raw_user_id):
+            if candidate and candidate not in related:
+                related.append(candidate)
+        for key in self._get_user_states_store().keys():
+            if isinstance(key, str) and key.endswith(suffix) and key not in related:
+                related.append(key)
+        return related
+
+    def _set_debug_mode_for_related_states(
+        self,
+        event: Optional[AstrMessageEvent],
+        primary_user_id: str,
+        enabled: bool,
+    ) -> List[str]:
+        updated: List[str] = []
+        for state_user_id in self._get_related_user_state_ids(event, primary_user_id):
+            state = self._get_state(state_user_id, count_interaction=False)
+            state["\u8c03\u8bd5\u6a21\u5f0f"] = bool(enabled)
+            self._schedule_state_save(state_user_id, state)
+            updated.append(state_user_id)
+        return updated
 
     def _get_session_key(
         self,
@@ -2077,5 +2233,4 @@ class MariannaRuntimeMixin:
         kwargs = getattr(req, "kwargs", None)
         if isinstance(kwargs, dict):
             kwargs["temperature"] = effective_temperature
-
 

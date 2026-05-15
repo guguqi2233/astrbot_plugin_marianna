@@ -1,7 +1,7 @@
 import re
 
-PLUGIN_VERSION = "1.5.1"
-PLUGIN_RELEASE_NAME = "Cost-Safe Memory Core"
+PLUGIN_VERSION = "1.5.2"
+PLUGIN_RELEASE_NAME = "Subtle Signal Diagnostics"
 
 # Mnemosyne 长期记忆插件将通过动态方式调用
 MNEMOSYNE_MAX_SHARED_MEMORIES = 200
