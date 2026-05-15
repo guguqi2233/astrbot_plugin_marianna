@@ -2,7 +2,7 @@
 
 Marianna 是一个面向 AstrBot 的人格、关系状态与本地记忆插件。当前版本重点是：降低大模型 token 成本、避免重复上下文注入、区分群聊/私聊记忆策略，并用本地状态机维持人格一致性。
 
-当前版本：`v1.5.6`
+当前版本：`v1.5.7`
 
 ## 核心能力
 
@@ -197,6 +197,12 @@ __pycache__/
 - 诊断面板是否能清楚解释本轮数值变化和记忆注入原因。
 
 ## 版本说明
+
+### v1.5.7
+
+- Tune low-trust opening behavior so respectful boundary confirmations can grant `trust +1`.
+- Keep favor, yandere, and lock progression blocked for boundary-respect signals.
+- Add regression coverage for "no trouble / no boundary crossing" trust movement.
 
 ### v1.5.6
 

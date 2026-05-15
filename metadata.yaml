@@ -1,6 +1,6 @@
 name: marianna
 display_name: Marianna
 desc: Cost-safe memory and persona plugin for AstrBot.
-version: v1.5.6
+version: v1.5.7
 author: guguqi2233
 repo: https://github.com/guguqi2233/astrbot_plugin_marianna.git

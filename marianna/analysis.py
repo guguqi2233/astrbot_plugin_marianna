@@ -1268,6 +1268,14 @@ class MariannaAnalysisMixin:
             )
         )
         serious_listening = bool(re.search(r"\u662f\u7684|\u786e\u5b9e|\u4f60\u8bf4\u5f97|\u6211\u7406\u89e3|\u6211\u660e\u767d|\u539f\u6765\u5982\u6b64|\u7684\u786e", normalized))
+        boundary_respect = bool(
+            re.search(
+                r"\u4e0d\u4f1a\u7ed9\u4f60\u6dfb\u9ebb\u70e6|\u4e0d\u7ed9\u4f60\u6dfb\u9ebb\u70e6|\u4e0d\u8d8a\u8fc7|\u4e0d\u4f1a\u8d8a\u8fc7|\u4e0d\u8d8a\u754c|\u4e0d\u4f1a\u8d8a\u754c|"
+                r"\u4f60\u7684\u89c4\u77e9|\u6211\u660e\u767d|\u6211\u4f1a\u9075\u5b88|\u9075\u5b88\u89c4\u77e9|\u82e5\u8ba9\u4f60\u4e3a\u96be|\u4e0d\u60f3\u8ba9\u4f60\u4e3a\u96be|"
+                r"\u5df2\u7ecf\u8db3\u591f|\u613f\u610f\u8ba9\u6211|\u8c22\u8c22\u4f60\u7684\u5b89\u6392|\u8c22\u8c22\u4f60\u613f\u610f",
+                normalized,
+            )
+        )
         question_or_request = intent == "\u63d0\u95ee\u6216\u8bf7\u6c42" or "\u6682\u65e0\u660e\u663e\u5173\u7cfb\u63a8\u8fdb" in signal
 
         if self_intro:
@@ -1290,6 +1298,9 @@ class MariannaAnalysisMixin:
         if serious_listening and question_or_request and trust < 45:
             adjusted[trust_key] = max(adjusted.get(trust_key, 0), 1)
             subtle_reasons.append("\u8ba4\u771f\u63a5\u4f4f\u5979\u7684\u8bdd")
+        if boundary_respect and trust < 30:
+            adjusted[trust_key] = max(adjusted.get(trust_key, 0), 1)
+            subtle_reasons.append("\u7528\u6237\u5c0a\u91cd\u8fb9\u754c\u4e0e\u89c4\u77e9")
 
         if subtle_reasons and not any(self._coerce_analysis_int(adjusted.get(field, 0), default=0) for field in positive_fields):
             adjusted[trust_key] = 1

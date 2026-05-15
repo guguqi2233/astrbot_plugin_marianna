@@ -379,6 +379,23 @@ def test_subtle_social_signals_prevent_frozen_opening_values() -> None:
     assert help_request["\u75c5\u5a07\u503c"] == 0
     assert help_request["\u9501\u5b9a\u8fdb\u5ea6"] == 0
 
+
+def test_boundary_respect_allows_small_trust_delta() -> None:
+    h = Harness()
+    deltas = h._decide_state_deltas_from_intent(
+        _state(**{"\u597d\u611f\u5ea6": 1, "\u4fe1\u4efb\u5ea6": 17}),
+        "\u6211\u660e\u767d\u3002\u4f60\u613f\u610f\u8ba9\u6211\u6682\u65f6\u6b47\u811a\u5df2\u7ecf\u8db3\u591f\u4e86\uff0c\u6211\u4e0d\u4f1a\u7ed9\u4f60\u6dfb\u9ebb\u70e6\uff0c\u4e5f\u4e0d\u4f1a\u8d8a\u8fc7\u4f60\u7684\u89c4\u77e9\u3002",
+        {"\u7528\u6237\u610f\u56fe": "\u63a5\u53d7\u6682\u4f4f\u5e76\u786e\u8ba4\u7ea6\u675f", "\u5173\u7cfb\u4fe1\u53f7": "\u4fe1\u4efb\u5408\u4f5c"},
+        user_id="u_boundary",
+        memory_evidence={"level": "\u65e0", "reasons": []},
+    )
+
+    assert deltas["\u4fe1\u4efb\u5ea6"] == 1
+    assert deltas["\u597d\u611f\u5ea6"] == 0
+    assert deltas["\u75c5\u5a07\u503c"] == 0
+    assert deltas["\u9501\u5b9a\u8fdb\u5ea6"] == 0
+
+
 def test_recent_memory_command_helpers() -> None:
     h = Harness()
     h.enable_builtin_memory = True
@@ -4280,6 +4297,7 @@ def main() -> None:
         test_memory_write_candidate_tolerates_bad_counts,
         test_topic_resonance_gives_small_trust_delta,
         test_subtle_social_signals_prevent_frozen_opening_values,
+        test_boundary_respect_allows_small_trust_delta,
         test_recent_memory_command_helpers,
         test_short_term_behavior_state,
         test_behavior_band_smoothing,
