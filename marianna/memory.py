@@ -753,6 +753,42 @@ class MariannaMemoryMixin:
             )
         return True
 
+    def _delete_builtin_memory_sync(self, user_id: str, prefix: str) -> bool:
+        memory_id = self._resolve_memory_id_sync(user_id, prefix)
+        if not memory_id:
+            return False
+        with self._connect_local_memory_db() as conn:
+            conn.execute("DELETE FROM memory_vectors WHERE memory_id = ?", (memory_id,))
+            cursor = conn.execute("DELETE FROM memories WHERE id = ? AND user_id = ?", (memory_id, str(user_id)))
+        return bool(cursor.rowcount)
+
+    async def _delete_builtin_memory(self, user_id: str, prefix: str) -> bool:
+        try:
+            if not await self._ensure_builtin_memory_ready():
+                return False
+            return await asyncio.to_thread(self._delete_builtin_memory_sync, user_id, prefix)
+        except Exception as e:
+            self.logger.error(f"delete builtin memory failed: {e}", exc_info=True)
+            return False
+
+    async def _protect_builtin_memory(self, user_id: str, prefix: str) -> bool:
+        try:
+            if not await self._ensure_builtin_memory_ready():
+                return False
+            return await asyncio.to_thread(self._protect_builtin_memory_sync, user_id, prefix)
+        except Exception as e:
+            self.logger.error(f"protect builtin memory failed: {e}", exc_info=True)
+            return False
+
+    async def _set_builtin_memory_visibility(self, user_id: str, prefix: str, visibility: str) -> bool:
+        try:
+            if not await self._ensure_builtin_memory_ready():
+                return False
+            return await asyncio.to_thread(self._set_builtin_memory_visibility_sync, user_id, prefix, visibility)
+        except Exception as e:
+            self.logger.error(f"set builtin memory visibility failed: {e}", exc_info=True)
+            return False
+
     def _export_builtin_memories_sync(self, user_id: str, limit: Any = 100) -> Path:
         self._init_builtin_memory_db_sync()
         export_dir = self._get_memory_export_dir()
@@ -941,6 +977,21 @@ class MariannaMemoryMixin:
             ).fetchall()
         return [self._row_to_memory_entry(row) for row in rows]
 
+    async def _get_recent_builtin_memories(self, user_id: str, limit: Any = 3) -> List[Dict[str, Any]]:
+        try:
+            if not await self._ensure_builtin_memory_ready():
+                return []
+            return await asyncio.to_thread(self._get_recent_builtin_memories_sync, user_id, limit)
+        except Exception as e:
+            self.logger.error(f"get recent builtin memories failed: {e}", exc_info=True)
+            return []
+
+    def _get_builtin_memory_stats_sync(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        return self._check_builtin_memory_health_sync(user_id)
+
+    async def _get_builtin_memory_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        return await self._check_builtin_memory_health(user_id)
+
     def _search_builtin_memories_sync(self, user_id: str, query: str, limit: Any = 3) -> List[Dict[str, Any]]:
         self._init_builtin_memory_db_sync()
         effective_limit = self._coerce_memory_int(limit, default=3, minimum=0, maximum=1000)
@@ -961,6 +1012,15 @@ class MariannaMemoryMixin:
         else:
             filtered = entries
         return filtered[:effective_limit]
+
+    async def _search_builtin_memories(self, user_id: str, query: str, limit: Any = 3) -> List[Dict[str, Any]]:
+        try:
+            if not await self._ensure_builtin_memory_ready():
+                return []
+            return await asyncio.to_thread(self._search_builtin_memories_sync, user_id, query, limit)
+        except Exception as e:
+            self.logger.error(f"search builtin memories failed: {e}", exc_info=True)
+            return []
 
     def _build_builtin_memory_query_cache_key(
         self,
@@ -1233,6 +1293,38 @@ class MariannaMemoryMixin:
         total = self._coerce_memory_int((stats or {}).get("total", 0), default=0, minimum=0)
         active = self._coerce_memory_int((stats or {}).get("active", 0), default=0, minimum=0)
         return f"本地记忆统计 v{version}\n总记忆：{total}\n活动记忆：{active}"
+
+    def _build_recent_memory_report(self, memories: List[Dict[str, Any]]) -> str:
+        if not memories:
+            return "最近记忆：暂无"
+        lines = ["最近记忆"]
+        for index, entry in enumerate(memories[:10], start=1):
+            if not isinstance(entry, dict):
+                continue
+            layer = str(entry.get("memory_layer") or entry.get("layer") or "impression")
+            memory_type = str(entry.get("type") or entry.get("memory_type") or "interaction")
+            salience = self._coerce_memory_int(entry.get("salience", 0), default=0, minimum=0)
+            summary = WHITESPACE_PATTERN.sub(" ", str(entry.get("summary") or entry.get("content") or "")).strip()[:80]
+            if not summary:
+                summary = "(空记忆)"
+            lines.append(f"{index}. [{layer}/{memory_type}/显著{salience}] {summary}")
+        return "\n".join(lines)
+
+    def _build_memory_search_report(self, memories: List[Dict[str, Any]], query: str = "") -> str:
+        query_text = WHITESPACE_PATTERN.sub(" ", str(query or "")).strip()
+        title = f"记忆搜索：{query_text}" if query_text else "记忆搜索"
+        if not memories:
+            return f"{title}\n暂无匹配记忆"
+        lines = [title]
+        for index, entry in enumerate(memories[:10], start=1):
+            if not isinstance(entry, dict):
+                continue
+            memory_id = str(entry.get("id") or entry.get("fingerprint") or "")[:8]
+            layer = str(entry.get("memory_layer") or entry.get("layer") or "impression")
+            salience = self._coerce_memory_int(entry.get("salience", 0), default=0, minimum=0)
+            summary = WHITESPACE_PATTERN.sub(" ", str(entry.get("summary") or entry.get("content") or "")).strip()[:80]
+            lines.append(f"{index}. {memory_id} [{layer}/显著{salience}] {summary or '(空记忆)'}")
+        return "\n".join(lines)
 
     def _build_memory_repair_report(self, result: Dict[str, Any]) -> str:
         backfilled = self._coerce_memory_int((result or {}).get("backfilled", 0), default=0, minimum=0)

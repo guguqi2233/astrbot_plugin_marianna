@@ -932,6 +932,11 @@ class MariannaAnalysisMixin:
             emotion = "愧疚/认真"
             signal = "尝试修复信任"
             goal = "根据当前信任与优雅程度接受或试探性接受道歉"
+        elif re.search(r"亲身经历|亲眼|亲自|出去看看|去看看|走出去|尝试|试着|或许你可以|你可以试试|值得一看|会不一样|比不上", normalized):
+            intent = "话题共鸣或温和建议"
+            emotion = "共鸣/鼓励"
+            signal = "认真接住话题"
+            goal = "先接住用户的观点或建议，让短期心理出现被理解的余温"
         elif re.search(r"喜欢|爱你|想你|抱|亲|陪我|陪你|只要你|只有你|唯一|永远|命定", normalized):
             intent = "亲近表达"
             emotion = "依恋/靠近"
@@ -1415,6 +1420,10 @@ class MariannaAnalysisMixin:
                 deltas["好感度"] = -1
         elif intent == "赞美或感谢" or "释放善意" in signal:
             deltas.update({"好感度": 1, "信任度": 1})
+        elif intent == "话题共鸣或温和建议" or "认真接住话题" in signal:
+            deltas["信任度"] = 1
+            if re.search(r"亲身经历|亲眼|亲自|出去看看|去看看|走出去|尝试|试着|会不一样", normalized):
+                deltas["好感度"] = 1
         elif intent == "分享秘密或建立约定":
             deltas.update({"信任度": 2, "好感度": 1})
             if favor >= 60:
@@ -1463,6 +1472,8 @@ class MariannaAnalysisMixin:
             return False
         if self._has_analysis_memory_anchor(normalized):
             return False
+        if re.search(r"亲身经历|亲眼|亲自|出去看看|去看看|走出去|尝试|试着|或许你可以|你可以试试|值得一看|会不一样|比不上", normalized):
+            return len(normalized) <= max(LOCAL_ANALYSIS_MAX_CHARS, 48)
         if len(normalized) <= LOCAL_ANALYSIS_MAX_CHARS and LOCAL_ANALYSIS_SIMPLE_PATTERN.search(normalized):
             return True
         return False
@@ -1504,6 +1515,10 @@ class MariannaAnalysisMixin:
                     deltas["锁定进度"] = 1
         elif re.search(r"谢谢|辛苦|真好|温柔|漂亮|可爱|厉害", normalized):
             deltas.update({"好感度": 1, "信任度": 1})
+        elif re.search(r"亲身经历|亲眼|亲自|出去看看|去看看|走出去|尝试|试着|或许你可以|你可以试试|值得一看|会不一样|比不上", normalized):
+            deltas["信任度"] = 1
+            if re.search(r"亲身经历|亲眼|亲自|出去看看|去看看|走出去|尝试|试着|会不一样", normalized):
+                deltas["好感度"] = 1
         elif re.search(r"晚安|再见|离开|走了|下了", normalized):
             if favor >= 30:
                 deltas["焦虑值"] = 1

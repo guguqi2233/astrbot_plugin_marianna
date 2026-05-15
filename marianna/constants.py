@@ -43,7 +43,8 @@ ANALYSIS_MEMORY_ANCHOR_PATTERN = re.compile(
 )
 LOCAL_ANALYSIS_SIMPLE_PATTERN = re.compile(
     r"谢谢|辛苦|真好|温柔|漂亮|可爱|厉害|喜欢你|喜欢妳|爱你|想你|抱抱|亲亲|晚安|再见|"
-    r"对不起|抱歉|错了|原谅|滚|恶心|烦|讨厌|闭嘴|羞辱"
+    r"对不起|抱歉|错了|原谅|滚|恶心|烦|讨厌|闭嘴|羞辱|亲身经历|亲眼|亲自|出去看看|"
+    r"去看看|走出去|尝试|试着|或许你可以|你可以试试|值得一看|会不一样|比不上"
 )
 LOCAL_PROFILE_NAME_PATTERN = re.compile(
     r"(?:请)?(?:叫我|喊我|称呼我为|称呼我|我的名字是|我叫)\s*([A-Za-z0-9_\-\u4e00-\u9fff]{1,20})"

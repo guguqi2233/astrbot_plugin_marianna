@@ -529,6 +529,48 @@ class MariannaPromptMixin:
         static_cache[cache_key] = prompt
         return prompt
 
+    def _should_use_cache_first_group_prompt(self, state: Dict[str, Any], compact_prompt: bool) -> bool:
+        if not getattr(self, "enable_token_cost_optimization", ENABLE_TOKEN_COST_OPTIMIZATION):
+            return False
+        scene_policy = state.get("_scene_memory_policy") or state.get("本轮场景记忆策略", {})
+        if not isinstance(scene_policy, dict):
+            scene_policy = {}
+        return bool(
+            scene_policy.get("is_group")
+            and str(scene_policy.get("memory_mode") or "").lower() == "lean"
+            and not scene_policy.get("context_injection_enabled")
+        )
+
+    def _build_cache_first_group_prompt(
+        self,
+        user_id: str,
+        state: Dict[str, Any],
+        turn_analysis: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, Dict[str, int]]:
+        prefix = self._build_cacheable_prompt_prefix(compact=True)
+        machine = self._get_relationship_state_machine(user_id, state)
+        favor = self._coerce_prompt_int(state.get("好感度", 0), default=0, minimum=0, maximum=100)
+        trust = self._coerce_prompt_int(state.get("信任度", 15), default=15, minimum=0, maximum=100)
+        anxiety = self._coerce_prompt_int(state.get("焦虑值", 0), default=0, minimum=0, maximum=100)
+        behavior = str(state.get("当前行为档位", "礼貌回应") or "礼貌回应")
+        intent = str((turn_analysis or {}).get("用户意图", "普通回应") or "普通回应")
+        signal = str((turn_analysis or {}).get("关系信号", "无明显关系推进") or "无明显关系推进")
+        dynamic = "\n".join(
+            [
+                "【群聊缓存优先动态层】",
+                f"关系边界：{machine['状态']}。{machine['策略']}",
+                f"当前档位：好感{favor}/信任{trust}/焦虑{anxiety}；行为={behavior}。",
+                f"本轮识别：{intent}；{signal}。",
+                "群聊要求：克制、公开、少私密细节；不要暴露私聊记忆；不要主动推进暧昧、命定或占有。",
+                "回复要求：自然回应当前消息，1-3句为主；可有一个短动作，不要解释规则。",
+            ]
+        )
+        named_parts = [
+            ("可缓存前缀", prefix),
+            ("群聊动态层", dynamic),
+        ]
+        return self._compose_prompt_sections([prefix, dynamic]), self._estimate_prompt_layer_tokens(named_parts)
+
     def _state_prompt_cache_key(
         self,
         user_id: str,
@@ -2488,6 +2530,34 @@ class MariannaPromptMixin:
         throttle_log = self._record_prompt_budget_throttle_event(state, auto_throttle_policy)
         state["Prompt预算自动降档"] = auto_throttle_policy
         state["Prompt预算记忆模式策略"] = memory_mode_policy
+
+        if self._should_use_cache_first_group_prompt(state, compact_prompt):
+            prompt, final_layer_tokens = self._build_cache_first_group_prompt(user_id, state, turn_analysis)
+            tokens = self._estimate_text_tokens(prompt)
+            state["最近Prompt估算"] = {
+                "tokens": tokens,
+                "original_tokens": tokens,
+                "chars": len(prompt),
+                "budget": self._coerce_prompt_int(
+                    getattr(self, "prompt_token_budget", PROMPT_TOKEN_BUDGET),
+                    default=PROMPT_TOKEN_BUDGET,
+                    minimum=0,
+                ),
+                "compact": True,
+                "cache_first_group": True,
+                "budget_guard_applied": False,
+                "initial_layer_tokens": dict(final_layer_tokens),
+                "final_layer_tokens": dict(final_layer_tokens),
+                "hot_layer": self._select_prompt_budget_hot_layer(final_layer_tokens),
+                "throttle_log": throttle_log,
+            }
+            state["最近记忆召回策略"] = {
+                "skipped": True,
+                "compact": True,
+                "reason": "群聊 lean 缓存优先 prompt",
+            }
+            self._record_prompt_cost_profile(state, state["最近Prompt估算"])
+            return prompt
 
         async def build_prompt(*, compact: bool, skip_memory: bool, preserve_anchor: bool = False) -> Tuple[str, Dict[str, int]]:
             cacheable_prefix = self._build_cacheable_prompt_prefix(compact=compact)

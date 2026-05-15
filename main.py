@@ -231,12 +231,14 @@ class MariannaPersonality(
             state_snapshot["本轮场景记忆策略"] = scene_memory_policy
 
             self._get_runtime_dict_cache("_pending_debug_deltas")[session_key] = {
+                "user_id": user_id,
                 "message_key": message_key,
                 "deltas": dict(applied_changes),
                 "turn_analysis": dict(turn_analysis),
                 "active_event": dict(active_event),
                 "state_explanation": self._coerce_runtime_dict_value(analysis_bundle.get("state_explanation", {})),
                 "skip_analysis": skip_analysis,
+                "debug_mode": bool(state.get("调试模式", self.default_debug_mode)),
                 "_created_at": time.monotonic(),
             }
 
@@ -299,13 +301,15 @@ class MariannaPersonality(
             message_key = self._normalize_analysis_content(event.message_str)
             self._purge_stale_pending_records()
             reply = self._strip_debug_artifacts(response.completion_text or "")
+            self._get_runtime_dict_cache("_analysis_request_cache").pop(session_key, None)
+            debug_session_key, pending_debug = self._pop_pending_debug_delta(session_key, message_key)
+            self._get_runtime_dict_cache("_session_alias_created_at").pop(debug_session_key, None)
+            if isinstance(pending_debug, dict) and pending_debug.get("user_id"):
+                user_id = str(pending_debug.get("user_id") or user_id)
             states = self._get_user_states_store() if hasattr(self, "_get_user_states_store") else getattr(self, "user_states", {})
             state = states.get(user_id, {}) if isinstance(states, dict) else {}
             if not isinstance(state, dict):
                 state = {}
-            self._get_runtime_dict_cache("_analysis_request_cache").pop(session_key, None)
-            pending_debug = self._get_runtime_dict_cache("_pending_debug_deltas").pop(session_key, {})
-            self._get_runtime_dict_cache("_session_alias_created_at").pop(session_key, None)
             if (
                 isinstance(pending_debug, dict)
                 and pending_debug.get("message_key") == message_key
@@ -341,7 +345,8 @@ class MariannaPersonality(
             response.completion_text = reply
 
             #  2. 调试模式追加数?
-            if state.get("调试模式", self.default_debug_mode):
+            debug_mode = bool(state.get("调试模式", pending_debug.get("debug_mode", self.default_debug_mode) if isinstance(pending_debug, dict) else self.default_debug_mode))
+            if debug_mode:
                 response.completion_text = reply + self._build_debug_footer(
                     state,
                     deltas,
@@ -389,7 +394,7 @@ class MariannaPersonality(
     @marianna_group.command("调试")  # type: ignore
     async def cmd_marianna_debug(self, event: AstrMessageEvent):
         """切换调试模式，在对话回复后显示当前数值与本轮变化。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         state = self._get_state(user_id, count_interaction=False)
         await self._reconcile_destined_one_state(user_id, state)
         state["调试模式"] = not state.get("调试模式", self.default_debug_mode)
@@ -403,7 +408,7 @@ class MariannaPersonality(
     @marianna_group.command("状态")  # type: ignore
     async def cmd_marianna_status(self, event: AstrMessageEvent):
         """查看当前所有数值与状态描述。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         state = self._get_state(user_id, count_interaction=False)
         if await self._reconcile_destined_one_state(user_id, state):
             self._schedule_state_save(user_id, state)
@@ -412,7 +417,7 @@ class MariannaPersonality(
     @marianna_group.command("诊断")  # type: ignore
     async def cmd_marianna_diagnostic(self, event: AstrMessageEvent):
         """查看最近一轮状态变化的决策链路。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         state = self._get_state(user_id, count_interaction=False)
         if await self._reconcile_destined_one_state(user_id, state):
             self._schedule_state_save(user_id, state)
@@ -421,7 +426,7 @@ class MariannaPersonality(
     @marianna_group.command("诊断历史")  # type: ignore
     async def cmd_marianna_diagnostic_history(self, event: AstrMessageEvent):
         """查看近几次状态诊断摘要。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         state = self._get_state(user_id, count_interaction=False)
         yield event.plain_result(self._build_diagnostic_history_report(state, limit=5))
 
@@ -438,14 +443,14 @@ class MariannaPersonality(
     @marianna_group.command("记忆统计")  # type: ignore
     async def cmd_marianna_memory_stats(self, event: AstrMessageEvent):
         """查看当前用户的内置长期记忆统计。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         stats = await self._get_builtin_memory_stats(user_id)
         yield event.plain_result(self._build_memory_stats_report(stats))
 
     @marianna_group.command("最近记忆")  # type: ignore
     async def cmd_marianna_recent_memories(self, event: AstrMessageEvent):
         """查看当前用户最近写入的内置长期记忆。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         memories = await self._get_recent_builtin_memories(user_id, limit=5)
         yield event.plain_result(self._build_recent_memory_report(memories))
 
@@ -463,7 +468,7 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u641c\u7d22")  # type: ignore
     async def cmd_marianna_memory_search(self, event: AstrMessageEvent):
         """Search visible builtin long-term memories for the current user."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         query = self._get_command_tail(event, "\u8bb0\u5fc6\u641c\u7d22")
         if not query:
             yield event.plain_result("\u8bf7\u5728\u547d\u4ee4\u540e\u8f93\u5165\u5173\u952e\u8bcd\uff0c\u4f8b\u5982\uff1a/\u739b\u4e3d\u4e9a \u8bb0\u5fc6\u641c\u7d22 \u751f\u65e5")
@@ -474,7 +479,7 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u5220\u9664")  # type: ignore
     async def cmd_marianna_memory_delete(self, event: AstrMessageEvent):
         """Delete one visible builtin memory by id prefix."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         memory_id = self._get_command_tail(event, "\u8bb0\u5fc6\u5220\u9664")
         if not memory_id:
             yield event.plain_result("\u8bf7\u63d0\u4f9b\u8bb0\u5fc6 id \u524d\u7f00\uff0c\u4f8b\u5982\uff1a/\u739b\u4e3d\u4e9a \u8bb0\u5fc6\u5220\u9664 a1b2c3")
@@ -485,7 +490,7 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u4fdd\u62a4")  # type: ignore
     async def cmd_marianna_memory_protect(self, event: AstrMessageEvent):
         """Protect one visible builtin memory from cleanup/decay."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         memory_id = self._get_command_tail(event, "\u8bb0\u5fc6\u4fdd\u62a4")
         if not memory_id:
             yield event.plain_result("\u8bf7\u63d0\u4f9b\u8bb0\u5fc6 id \u524d\u7f00\uff0c\u4f8b\u5982\uff1a/\u739b\u4e3d\u4e9a \u8bb0\u5fc6\u4fdd\u62a4 a1b2c3")
@@ -496,7 +501,7 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u53ef\u89c1\u6027")  # type: ignore
     async def cmd_marianna_memory_visibility(self, event: AstrMessageEvent):
         """Set memory visibility: private_only/group_only/public_profile/sensitive."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         tail = self._get_command_tail(event, "\u8bb0\u5fc6\u53ef\u89c1\u6027")
         parts = tail.split()
         if len(parts) < 2:
@@ -514,7 +519,7 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u5bfc\u51fa")  # type: ignore
     async def cmd_marianna_memory_export(self, event: AstrMessageEvent):
         """Export visible builtin memories for the current user."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         file_path = await self._export_builtin_memories(user_id, limit=500)
         if not file_path:
             yield event.plain_result("内置本地记忆未启用或初始化失败，未生成导出文件。")
@@ -524,7 +529,7 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u5bfc\u5165")  # type: ignore
     async def cmd_marianna_memory_import(self, event: AstrMessageEvent):
         """Import builtin memories from data/memory_exports/*.jsonl."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         file_name = self._get_command_tail(event, "\u8bb0\u5fc6\u5bfc\u5165")
         if not file_name:
             yield event.plain_result("\u8bf7\u63d0\u4f9b data/memory_exports \u4e0b\u7684 jsonl \u6587\u4ef6\u540d\u3002")
@@ -535,14 +540,14 @@ class MariannaPersonality(
     @marianna_group.command("\u8bb0\u5fc6\u5065\u5eb7")  # type: ignore
     async def cmd_marianna_memory_health(self, event: AstrMessageEvent):
         """Run a local memory health check."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         health = await self._check_builtin_memory_health(user_id)
         yield event.plain_result(self._build_memory_health_report(health))
 
     @marianna_group.command("\u8bb0\u5fc6\u4fee\u590d")  # type: ignore
     async def cmd_marianna_memory_repair(self, event: AstrMessageEvent):
         """Repair local memory metadata and indexes."""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         result = await self._repair_builtin_memory(user_id)
         yield event.plain_result(self._build_memory_repair_report(result))
 
@@ -561,7 +566,7 @@ class MariannaPersonality(
     @marianna_group.command("记忆清理")  # type: ignore
     async def cmd_marianna_memory_cleanup(self, event: AstrMessageEvent):
         """清理当前用户低显著度、未命中的互动印象。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         deleted = await self._cleanup_low_value_builtin_memories(user_id)
         yield event.plain_result(
             f"🧹 玛丽亚整理了内置记忆。\n> *清理低价值互动印?{deleted} 条?"
@@ -570,7 +575,7 @@ class MariannaPersonality(
     @marianna_group.command("重置")  # type: ignore
     async def cmd_marianna_reset(self, event: AstrMessageEvent):
         """重置该用户的所有状态，但保留已学习的用户画像。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         new_state = copy.deepcopy(DEFAULT_STATE)
         new_state["最后互动时间"] = None
         new_state["调试模式"] = self.default_debug_mode
@@ -591,14 +596,14 @@ class MariannaPersonality(
     @marianna_group.command("画像")  # type: ignore
     async def cmd_marianna_profile(self, event: AstrMessageEvent):
         """显示玛丽亚对你的印象，也就是她已经学到的用户画像。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         profile = self._get_profile(user_id)
         yield event.plain_result(self._build_profile_report(profile))
 
     @marianna_group.command("重置学习")  # type: ignore
     async def cmd_marianna_reset_learning(self, event: AstrMessageEvent):
         """清除玛丽亚已学习的用户画像，但不影响当前状态。"""
-        user_id = self._get_scoped_user_id(event)
+        user_id = self._get_command_scoped_user_id(event)
         profiles = self._get_user_profiles_store() if hasattr(self, "_get_user_profiles_store") else getattr(self, "user_profiles", {})
         if isinstance(profiles, dict) and user_id in profiles:
             del profiles[user_id]

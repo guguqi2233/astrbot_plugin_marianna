@@ -324,6 +324,62 @@ def test_memory_write_candidate_tolerates_bad_counts() -> None:
     assert promoted_state["最近记忆写入候选"]["count"] == 0
 
 
+def test_topic_resonance_gives_small_trust_delta() -> None:
+    h = Harness()
+    state = _state(好感度=0, 信任度=15)
+    message = "或许你可以尝试出去看看，亲身经历的话感觉会不一样"
+
+    analysis = h._build_local_state_analysis(state, message, user_id="u_topic")
+
+    assert analysis is not None
+    turn = analysis["__turn_analysis"]
+    deltas = analysis
+    assert turn["用户意图"] == "话题共鸣或温和建议"
+    assert turn["关系信号"] == "认真接住话题"
+    assert deltas["信任度"] == 1
+    assert deltas["好感度"] == 1
+    assert deltas["病娇值"] == 0
+    assert deltas["锁定进度"] == 0
+
+
+def test_recent_memory_command_helpers() -> None:
+    h = Harness()
+    h.enable_builtin_memory = True
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        h.local_memory_db_file = Path(tmp_dir) / "memory.db"
+        h._init_builtin_memory_db_sync()
+        now = datetime.now().isoformat()
+        with h._connect_local_memory_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO memories(
+                    id, user_id, layer, type, summary, raw_content, normalized_content,
+                    keywords_json, salience, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "recent-1",
+                    "u_recent",
+                    "impression",
+                    "preference",
+                    "喜欢亲身旅行",
+                    "用户建议玛丽亚亲身出去看看",
+                    "用户建议玛丽亚亲身出去看看",
+                    "[]",
+                    4,
+                    now,
+                    now,
+                ),
+            )
+        memories = asyncio.run(h._get_recent_builtin_memories("u_recent", limit=5))
+        assert len(memories) == 1
+        report = h._build_recent_memory_report(memories)
+        assert "最近记忆" in report
+        assert "喜欢亲身旅行" in report
+        assert "暂无" in h._build_recent_memory_report([])
+
+
 def test_short_term_behavior_state() -> None:
     h = Harness()
     bad_state = _state(
@@ -650,6 +706,17 @@ def test_builtin_memory_reinforcement_preserves_manual_metadata() -> None:
         assert evidence["visibility"] == "sensitive"
         assert evidence["protected"] is True
         assert int(row["salience"]) >= 8
+        assert asyncio.run(h._protect_builtin_memory("u1", memory_id[:10]))
+        assert asyncio.run(h._set_builtin_memory_visibility("u1", memory_id[:10], "public_profile"))
+        searched = asyncio.run(h._search_builtin_memories("u1", "承诺", limit=5))
+        assert searched
+        search_report = h._build_memory_search_report(searched, "承诺")
+        assert "记忆搜索" in search_report
+        assert memory_id[:8] in search_report
+        assert asyncio.run(h._delete_builtin_memory("u1", memory_id[:10]))
+        with h._connect_local_memory_db() as conn:
+            deleted = conn.execute("SELECT id FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        assert deleted is None
 
 
 def test_builtin_memory_write_coerces_dirty_numeric_fields() -> None:
@@ -1215,6 +1282,17 @@ def test_state_scope_mode() -> None:
     chinese_group = _FakeEvent("u1", umo="\u7fa4\u804a:room-1")
     assert h._is_group_event(chinese_group)
     assert h._get_scoped_user_id(chinese_group).startswith("group:")
+
+
+def test_command_scope_falls_back_to_recent_group_state() -> None:
+    h = Harness()
+    group_state = _state(互动计数=3, 最后互动时间=datetime.now().isoformat())
+    group_state["最近状态解释"] = {"用户意图": "话题共鸣或温和建议"}
+    h.user_states["group:g1::u1"] = group_state
+
+    command_event_without_group_origin = _FakeEvent("u1")
+
+    assert h._get_command_scoped_user_id(command_event_without_group_origin) == "group:g1::u1"
 
 
 def test_memory_privacy_bridge_and_temperature() -> None:
@@ -2170,6 +2248,49 @@ def test_prompt_budget_guard_falls_back_to_compact() -> None:
     assert "Prompt\u70ed\u5c42" in report
 
 
+def test_group_lean_cache_first_prompt_is_small_and_stable() -> None:
+    h = Harness()
+    h.enable_profile = False
+    h.enable_emotional_memory = False
+    h.mnemosyne_available = False
+    h.enable_builtin_memory = False
+    state = _state(好感度=0, 信任度=15)
+    state["_scene_memory_policy"] = {
+        "is_group": True,
+        "memory_mode": "lean",
+        "context_injection_enabled": False,
+    }
+    prompt_a = asyncio.run(
+        h._build_system_prompt(
+            "group:g1::u1",
+            state,
+            "晚上好",
+            turn_analysis={"用户意图": "普通回应", "关系信号": "无明显关系推进"},
+            active_event={},
+            skip_memory_retrieval=True,
+            compact_prompt=True,
+        )
+    )
+    state["互动计数"] = 12
+    state["最近状态解释"] = {"time": datetime.now().isoformat()}
+    prompt_b = asyncio.run(
+        h._build_system_prompt(
+            "group:g1::u1",
+            state,
+            "今晚在读什么",
+            turn_analysis={"用户意图": "提问或请求", "关系信号": "无明显关系推进"},
+            active_event={},
+            skip_memory_retrieval=True,
+            compact_prompt=True,
+        )
+    )
+    assert "群聊缓存优先动态层" in prompt_a
+    assert state["最近Prompt估算"]["cache_first_group"] is True
+    assert state["最近记忆召回策略"]["skipped"] is True
+    assert h._common_prefix_chars(prompt_a, prompt_b) > 1200
+    assert len(prompt_b) < 2200
+
+
 def test_prompt_budget_memory_anchor_selection() -> None:
     h = Harness()
     memories = [
@@ -2901,6 +3022,17 @@ def test_runtime_bad_numeric_state_is_tolerated() -> None:
     assert session_key.endswith("::seq:1")
     assert isinstance(h._session_alias_queues.get(alias_key), list)
     assert h._get_session_key(event, "u1") == session_key
+
+    h._pending_debug_deltas = {
+        "other": {"_created_at": time.monotonic()},
+        "request-key": {"message_key": "same-message", "user_id": "group:g1::u1", "debug_mode": True},
+        "unrelated": {"message_key": "other-message"},
+    }
+    resolved_key, debug_record = h._pop_pending_debug_delta("response-key", "same-message")
+    assert resolved_key == "request-key"
+    assert debug_record["debug_mode"] is True
+    assert debug_record["user_id"] == "group:g1::u1"
+    assert "unrelated" in h._pending_debug_deltas
 
     h._session_alias_created_at["scene::u1::old"] = time.monotonic()
     h._session_alias_created_at["scene::u2::old"] = time.monotonic()
@@ -3983,6 +4115,8 @@ def main() -> None:
         test_memory_write_candidate_staging,
         test_memory_write_candidate_refresh_before_limit_trim,
         test_memory_write_candidate_tolerates_bad_counts,
+        test_topic_resonance_gives_small_trust_delta,
+        test_recent_memory_command_helpers,
         test_short_term_behavior_state,
         test_behavior_band_smoothing,
         test_behavior_continuity_bridge,
@@ -4016,6 +4150,7 @@ def main() -> None:
         test_diagnostic_history_report,
         test_contextual_state_delta_rules,
         test_state_scope_mode,
+        test_command_scope_falls_back_to_recent_group_state,
         test_memory_privacy_bridge_and_temperature,
         test_memory_conflict_slot_and_cooldown,
         test_prompt_token_estimate_and_group_self_check,
@@ -4039,6 +4174,7 @@ def main() -> None:
         test_memory_repair_mode_report_and_profile_prompt_confidence,
         test_adaptive_lightweight_prompt_and_diagnostic_estimate,
         test_prompt_budget_guard_falls_back_to_compact,
+        test_group_lean_cache_first_prompt_is_small_and_stable,
         test_prompt_budget_memory_anchor_selection,
         test_prompt_budget_history_and_advice,
         test_prompt_layer_cost_helpers,

@@ -1443,6 +1443,39 @@ class MariannaRuntimeMixin:
             return f"{scene_key}::{raw_user_id}"
         return raw_user_id
 
+    def _get_command_scoped_user_id(
+        self,
+        event: Optional[AstrMessageEvent] = None,
+        user_id: Optional[str] = None,
+    ) -> str:
+        scoped_user_id = self._get_scoped_user_id(event, user_id)
+        user_states = self._get_user_states_store()
+        existing = user_states.get(scoped_user_id)
+        if isinstance(existing, dict) and (
+            self._coerce_runtime_int(existing.get("互动计数", 0), default=0, minimum=0) > 0
+            or existing.get("最近状态解释")
+            or existing.get("诊断历史")
+        ):
+            return scoped_user_id
+
+        raw_user_id = str(user_id or (event.get_sender_id() if event else "unknown") or "unknown")
+        suffix = f"::{raw_user_id}"
+        candidates: List[Tuple[float, str]] = []
+        for key, state in user_states.items():
+            if not isinstance(key, str) or not key.endswith(suffix) or not isinstance(state, dict):
+                continue
+            score = float(self._coerce_runtime_int(state.get("互动计数", 0), default=0, minimum=0))
+            last_time = self._parse_iso_datetime(state.get("最后互动时间"))
+            if last_time:
+                score += last_time.timestamp() / 1000000000.0
+            if state.get("最近状态解释") or state.get("诊断历史"):
+                score += 1000000.0
+            candidates.append((score, key))
+        if candidates:
+            candidates.sort(reverse=True)
+            return candidates[0][1]
+        return scoped_user_id
+
     def _get_session_key(
         self,
         event: Optional[AstrMessageEvent] = None,
@@ -1482,6 +1515,24 @@ class MariannaRuntimeMixin:
             del queue[:-64]
         self._get_runtime_dict_cache("_session_alias_created_at")[session_key] = time.monotonic()
         return session_key
+
+    def _pop_pending_debug_delta(
+        self,
+        session_key: str,
+        message_key: str,
+    ) -> Tuple[str, Dict[str, Any]]:
+        pending_debug_deltas = self._get_runtime_dict_cache("_pending_debug_deltas")
+        expected_key = str(message_key or "")
+        record = pending_debug_deltas.pop(session_key, None)
+        if isinstance(record, dict):
+            if record.get("message_key") == expected_key:
+                return session_key, record
+            pending_debug_deltas[session_key] = record
+
+        for key, value in list(pending_debug_deltas.items()):
+            if isinstance(value, dict) and value.get("message_key") == expected_key:
+                return str(key), pending_debug_deltas.pop(key, {})
+        return session_key, {}
 
     def _pending_key_belongs_to_user(self, key: str, user_id: str) -> bool:
         key_text = str(key)
